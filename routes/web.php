@@ -32,10 +32,13 @@ Route::middleware('auth')->group(function () {
         ->name('profile.destroy');
 });
 
-// Route dla admina
+//Route dla admina
 Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
     ->name('admin.dashboard')
     ->middleware('auth');
+Route::put('/admin/users/{id}', [AdminDashboardController::class, 'update'])->name('admin.users.update');
+
+    
 
 // Route dla użytkownika
 Route::get('/user/dashboard', [UserDashboardController::class, 'index'])

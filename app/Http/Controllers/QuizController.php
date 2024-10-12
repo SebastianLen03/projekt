@@ -19,6 +19,7 @@ class QuizController extends Controller
      */
     public function solve(Quiz $quiz)
     {
+        // Przekazanie quizu do widoku rozwiązywania quizu
         return view('quizzes.solve', compact('quiz'));
     }
 
@@ -31,17 +32,20 @@ class QuizController extends Controller
      */
     public function submitAnswers(Quiz $quiz, Request $request)
     {
+        // Pobiera ID aktualnie zalogowanego użytkownika
         $userId = Auth::id();
-        $answers = $request->input('answers'); // Pobranie odpowiedzi z formularza
+        
+        // Pobiera odpowiedzi użytkownika z formularza
+        $answers = $request->input('answers');
 
         // Generowanie nowego UUID dla bieżącego podejścia
-        $attemptUuid = (string) Str::uuid(); // Generowanie unikalnego UUID dla tego podejścia
+        $attemptUuid = (string) Str::uuid(); // Generowanie unikalnego identyfikatora UUID dla tego podejścia
 
         Log::info('Generowanie UUID dla podejścia:', ['attempt_uuid' => $attemptUuid]);
 
-        // Logika przetwarzania odpowiedzi
+        // Przetwarzanie odpowiedzi użytkownika dla każdego pytania quizu
         foreach ($quiz->questions as $question) {
-            // Sprawdzenie odpowiedzi użytkownika
+            // Pobiera odpowiedź użytkownika na dane pytanie
             $userAnswer = $answers[$question->id] ?? null;
 
             // Logowanie odpowiedzi użytkownika
@@ -51,15 +55,15 @@ class QuizController extends Controller
                 'attempt_uuid' => $attemptUuid,
             ]);
 
+            // Jeśli odpowiedź jest pusta, oznaczamy ją jako błędną
             if (is_null($userAnswer) || trim($userAnswer) === '') {
-                // Jeśli odpowiedź jest pusta, oznaczamy ją jako błędną
                 UserAnswer::create([
                     'user_id' => $userId,
                     'question_id' => $question->id,
                     'selected_option' => null,
                     'answer' => null,
                     'is_correct' => false,
-                    'attempt_uuid' => $attemptUuid, // Zapisujemy UUID podejścia
+                    'attempt_uuid' => $attemptUuid,
                 ]);
 
                 Log::info('Odpowiedź pusta - zapis do bazy:', [
@@ -70,17 +74,18 @@ class QuizController extends Controller
                 continue;
             }
 
-            // Przetwarzanie odpowiedzi (pytania zamknięte)
+            // Przetwarzanie odpowiedzi dla pytań zamkniętych
             if (is_null($question->expected_code)) {
                 $isCorrect = trim($userAnswer) === trim($question->correct_option);
 
+                // Zapisanie odpowiedzi użytkownika
                 UserAnswer::create([
                     'user_id' => $userId,
                     'question_id' => $question->id,
                     'selected_option' => $userAnswer,
                     'answer' => null,
                     'is_correct' => $isCorrect,
-                    'attempt_uuid' => $attemptUuid, // Zapisujemy UUID podejścia
+                    'attempt_uuid' => $attemptUuid,
                 ]);
 
                 Log::info('Odpowiedź zamknięta - zapis do bazy:', [
@@ -90,12 +95,12 @@ class QuizController extends Controller
                     'attempt_uuid' => $attemptUuid,
                 ]);
             } else {
-                // Przetwarzanie odpowiedzi (pytania otwarte)
+                // Przetwarzanie odpowiedzi dla pytań otwartych
                 $this->handleOpenQuestion($userId, $question, $userAnswer, $attemptUuid);
             }
         }
 
-        // Po przesłaniu odpowiedzi przekierowanie na stronę wyników
+        // Przekierowanie na stronę wyników po zakończeniu przesyłania odpowiedzi
         return redirect()->route('quizzes.results', $quiz);
     }
 
@@ -119,14 +124,14 @@ class QuizController extends Controller
 
         // Sprawdzenie, czy odpowiedź użytkownika jest pusta
         if (trim($userAnswer) === '') {
-            // Jeśli odpowiedź jest pusta, oznaczamy ją jako błędną i zapisujemy wynik
+            // Oznacz odpowiedź jako błędną
             UserAnswer::create([
                 'user_id' => $userId,
                 'question_id' => $question->id,
                 'selected_option' => null,
                 'answer' => null,
                 'is_correct' => false,
-                'attempt_uuid' => $attemptUuid, // Zapisanie UUID podejścia
+                'attempt_uuid' => $attemptUuid,
             ]);
 
             Log::info('Odpowiedź otwarta pusta - zapis do bazy:', [
@@ -148,7 +153,7 @@ class QuizController extends Controller
             'selected_option' => null,
             'answer' => $userAnswer,
             'is_correct' => $testResult['is_correct'],
-            'attempt_uuid' => $attemptUuid, // Zapisanie UUID podejścia
+            'attempt_uuid' => $attemptUuid,
         ]);
 
         Log::info('Odpowiedź otwarta - zapis do bazy:', [
@@ -195,17 +200,17 @@ class QuizController extends Controller
         for ($i = 0; $i < 10; $i++) {
             $inputs = [];
             for ($j = 0; $j < $paramCount; $j++) {
-                // Analiza typu danych i generowanie stringów lub liczb
+                // Generowanie stringów lub liczb w zależności od typu parametru
                 if ($this->isStringArgument($userCode, $j)) {
-                    $inputs[] = $this->generateRandomString(); // Generowanie stringa
+                    $inputs[] = $this->generateRandomString();
                 } else {
-                    $inputs[] = rand(-30, 30); // Generowanie liczby
+                    $inputs[] = rand(-30, 30); // Losowa liczba
                 }
             }
             $testCases[] = ['input' => $inputs];
         }
 
-        // Generowanie kodu testowego dla użytkownika i oczekiwanego wyniku
+        // Generowanie kodu testowego do wykonania
         $codeToRunUser = $userCode . "\n";
         $codeToRunExpected = $expectedCode . "\n";
 
@@ -235,7 +240,6 @@ class QuizController extends Controller
         $matches = [];
         if (preg_match('/function\s+(\w+)\s*\(/', $code, $matches)) {
             $functionName = $matches[1];
-            // Zamienia wszystkie wystąpienia nazwy funkcji na "test"
             $code = preg_replace('/function\s+' . $functionName . '\s*\(/', 'function test(', $code);
             $code = preg_replace('/\b' . $functionName . '\b/', 'test', $code);
         }
@@ -250,13 +254,14 @@ class QuizController extends Controller
      */
     protected function getFunctionParamCount($code)
     {
+        // Wyciąga parametry funkcji z kodu
         $pattern = '/function\s+\w+\s*\(([^)]*)\)/';
         if (preg_match($pattern, $code, $matches)) {
             $params = $matches[1];
             if (trim($params) === '') {
-                return 0; // Jeśli brak parametrów
+                return 0;
             }
-            return count(array_filter(array_map('trim', explode(',', $params)))); // Liczenie parametrów
+            return count(array_filter(array_map('trim', explode(',', $params))));
         }
         return 0;
     }
@@ -270,6 +275,7 @@ class QuizController extends Controller
      */
     protected function executeCodeWithDocker($code, $timeout = 15)
     {
+        // Tworzy tymczasowy plik PHP z kodem użytkownika
         $codeFile = tempnam(sys_get_temp_dir(), 'usercode_') . '.php';
         file_put_contents($codeFile, $code);
 
@@ -284,6 +290,7 @@ class QuizController extends Controller
             2 => ['pipe', 'w'],
         ];
 
+        // Uruchamia proces Dockera i monitoruje wynik
         $process = proc_open($command, $descriptorSpec, $pipes);
 
         if (is_resource($process)) {
@@ -295,6 +302,7 @@ class QuizController extends Controller
                 $output .= stream_get_contents($pipes[1]);
                 $errors .= stream_get_contents($pipes[2]);
 
+                // Sprawdza, czy czas limitu został przekroczony
                 if (time() - $startTime > $timeout) {
                     proc_terminate($process);
                     fclose($pipes[1]);
@@ -317,6 +325,7 @@ class QuizController extends Controller
             fclose($pipes[1]);
             fclose($pipes[2]);
 
+            // Zamykanie procesu i usuwanie tymczasowego pliku
             $return_value = proc_close($process);
             unlink($codeFile);
 
@@ -345,7 +354,7 @@ class QuizController extends Controller
             ];
         }
     }
-    
+
     /**
      * Porównuje wyniki testów kodu użytkownika i oczekiwanego kodu.
      *
@@ -365,11 +374,13 @@ class QuizController extends Controller
         foreach ($testCases as $index => $testCase) {
             $input = $testCase['input'];
 
+            // Jeśli wystąpił błąd podczas testu, zwróć wynik jako błędny
             if (isset($userResult['error']) || isset($expectedResult['error'])) {
                 Log::warning('Błąd testu:', ['user_result_error' => $userResult['error'], 'expected_result_error' => $expectedResult['error']]);
                 return ['is_correct' => false, 'comparisons' => []];
             }
 
+            // Porównywanie wyników użytkownika z oczekiwanymi
             $userOutput = json_decode($userOutputs[$index], true);
             $expectedOutput = json_decode($expectedOutputs[$index], true);
 
@@ -401,7 +412,7 @@ class QuizController extends Controller
      */
     protected function isStringArgument($code, $argIndex)
     {
-        // Analiza argumentów funkcji
+        // Analizuje typ argumentu w kodzie
         if (preg_match('/function\s+\w+\s*\(([^)]*)\)/', $code, $matches)) {
             $params = array_map('trim', explode(',', $matches[1]));
             if (isset($params[$argIndex])) {
@@ -422,10 +433,10 @@ class QuizController extends Controller
             }
         }
 
-        // Domyślnie, zakładamy, że argument jest liczbą
+        // Domyślnie zakłada, że argument jest liczbą
         return false;
     }
- 
+
     /**
      * Generuje losowy ciąg znaków.
      *
