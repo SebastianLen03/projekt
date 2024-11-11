@@ -4,36 +4,22 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-class CreateQuestionsTable extends Migration
+return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     *
-     * @return void
-     */
-    public function up()
+    public function up(): void
     {
+        // Migration file for the questions table
         Schema::create('questions', function (Blueprint $table) {
             $table->id();
             $table->foreignId('quiz_id')->constrained()->onDelete('cascade');
             $table->string('question_text');
-            $table->string('option_a')->nullable();
-            $table->string('option_b')->nullable();
-            $table->string('option_c')->nullable();
-            $table->string('option_d')->nullable();
-            $table->string('correct_option')->nullable();
-            $table->text('expected_code')->nullable(); // Kolumna expected_code typu TEXT
+            $table->enum('type', ['open', 'single_choice', 'multiple_choice']); // Ensure no default value is set
             $table->timestamps();
         });
     }
 
-    /**
-     * Reverse the migrations.
-     *
-     * @return void
-     */
-    public function down()
+    public function down(): void
     {
         Schema::dropIfExists('questions');
     }
-}
+};

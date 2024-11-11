@@ -4,84 +4,131 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Quiz;
+use App\Models\Question;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 
 class QuizCreateController extends Controller
 {
-    /**
-     * Wyświetla stronę tworzenia nowego quizu.
-     * 
-     * Ta funkcja odpowiada za wyświetlenie widoku, w którym użytkownik może utworzyć nowy quiz. 
-     * Widok ten zawiera formularz, w którym można wprowadzić tytuł quizu oraz dodać pytania.
-     *
-     * @return \Illuminate\View\View Widok formularza tworzenia quizu.
-     */
     public function create()
     {
-        return view('quizzes.create'); // Zwraca widok dla tworzenia nowego quizu.
+        // Utworzenie nowego quizu w bazie danych
+        $quiz = Quiz::create([
+            'title' => '',
+            'user_id' => Auth::id(),
+            'time_limit' => null,
+            'available_from' => null,
+            'available_to' => null,
+        ]);
+
+        return view('quizzes.create', ['quizId' => $quiz->id]);
     }
 
-    /**
-     * Zapisuje nowo utworzony quiz oraz jego pytania w bazie danych.
-     * 
-     * Ta funkcja obsługuje przesłanie formularza tworzenia quizu. 
-     * Waliduje dane wejściowe, tworzy nowy quiz i zapisuje w bazie jego pytania.
-     *
-     * @param Request $request Żądanie HTTP zawierające dane wprowadzone przez użytkownika.
-     * @return \Illuminate\Http\RedirectResponse Przekierowuje użytkownika po zapisaniu quizu.
-     */
     public function store(Request $request)
     {
+        Log::info('Rozpoczęcie walidacji w QuizCreateController', ['request' => $request->all()]);
+
         // Walidacja danych wejściowych
-        // Sprawdzamy poprawność danych: tytułu quizu oraz pytań.
         $request->validate([
-            'title' => 'required|string|max:255', // Tytuł quizu jest wymagany, musi być stringiem o maks. długości 255 znaków
-            'questions' => 'required|array', // Lista pytań musi być tablicą i jest wymagana
-            'questions.*.question_text' => 'required|string|max:255', // Każde pytanie musi mieć tekst o maks. długości 255 znaków
-            'questions.*.type' => 'required|in:open,closed', // Każde pytanie musi być otwarte (open) lub zamknięte (closed)
-            'questions.*.option_a' => 'nullable|string|max:255', // Opcje A-D są opcjonalne (nullable), maks. 255 znaków
-            'questions.*.option_b' => 'nullable|string|max:255',
-            'questions.*.option_c' => 'nullable|string|max:255',
-            'questions.*.option_d' => 'nullable|string|max:255',
-            'questions.*.correct_option' => 'nullable|in:A,B,C,D', // Poprawna odpowiedź musi być jedną z opcji (A, B, C, D)
-            'questions.*.expected_code' => 'nullable|string', // Dla pytań otwartych może być wymagany kod
+            'title' => 'required|string|max:255',
+            'time_limit' => 'nullable|integer',
+            'questions' => 'required|array',
+            'questions.*.question_text' => 'required|string|max:255',
+            'questions.*.type' => 'required|in:open,single_choice,multiple_choice',
+            'questions.*.answers' => 'nullable|array',
+            'questions.*.answers.*.text' => 'nullable|string|max:255',
+            'questions.*.correct_answer' => 'nullable|array',
+            'questions.*.expected_code' => 'nullable|string'
         ]);
 
-        // Tworzenie nowego quizu w bazie danych
+        // Usuń istniejący quiz przed zapisaniem nowego
+        Quiz::where('id', $request->input('quiz_id'))->delete();
+
+        // Tworzenie quizu
         $quiz = Quiz::create([
-            'title' => $request->input('title'), // Pobranie tytułu quizu z danych wejściowych
-            'user_id' => Auth::id(), // Przypisanie quizu zalogowanemu użytkownikowi
+            'title' => $request->input('title'),
+            'user_id' => Auth::id(),
+            'time_limit' => $request->input('time_limit', null),
+            'available_from' => $request->input('available_from', null),
+            'available_to' => $request->input('available_to', null),
         ]);
 
-        // Tworzenie pytań dla tego quizu
+        // Tworzenie pytań i odpowiedzi
         foreach ($request->input('questions') as $questionData) {
-            // Jeśli pytanie jest otwarte
-            if ($questionData['type'] === 'open') {
-                // Tworzenie pytania otwartego z kodem oczekiwanym
-                $quiz->questions()->create([
-                    'question_text' => $questionData['question_text'], // Treść pytania
-                    'expected_code' => $questionData['expected_code'], // Oczekiwany kod (jeśli jest pytaniem otwartym)
-                    'option_a' => null, // Opcje odpowiedzi nie są potrzebne dla pytań otwartych
-                    'option_b' => null,
-                    'option_c' => null,
-                    'option_d' => null,
-                    'correct_option' => null, // Brak poprawnej opcji dla pytań otwartych
+            $question = $quiz->questions()->create([
+                'question_text' => $questionData['question_text'],
+                'type' => $questionData['type'],
+            ]);
+
+            if ($questionData['type'] === 'open' && isset($questionData['expected_code'])) {
+                $question->answers()->create([
+                    'text' => null,
+                    'is_correct' => null,
+                    'expected_code' => $questionData['expected_code']
                 ]);
-            } else {
-                // Tworzenie pytania zamkniętego z opcjami A-D i poprawną odpowiedzią
-                $quiz->questions()->create([
-                    'question_text' => $questionData['question_text'], // Treść pytania
-                    'option_a' => $questionData['option_a'], // Opcja A
-                    'option_b' => $questionData['option_b'], // Opcja B
-                    'option_c' => $questionData['option_c'], // Opcja C
-                    'option_d' => $questionData['option_d'], // Opcja D
-                    'correct_option' => $questionData['correct_option'], // Poprawna opcja (A-D)
-                    'expected_code' => null, // Nie ma oczekiwanego kodu dla pytań zamkniętych
+            } elseif (in_array($questionData['type'], ['single_choice', 'multiple_choice']) && isset($questionData['answers'])) {
+                foreach ($questionData['answers'] as $index => $answerData) {
+                    $isCorrect = in_array($index, $questionData['correct_answer'] ?? []);
+
+                    $question->answers()->create([
+                        'text' => $answerData['text'],
+                        'is_correct' => $isCorrect,
+                        'expected_code' => null
+                    ]);
+                }
+            }
+        }
+
+        return redirect()->route('user.dashboard')->with('success', 'Quiz został pomyślnie utworzony!');
+    }
+    
+    public function saveQuestion(Request $request)
+    {
+        Log::info('Rozpoczęcie zapisu pytania.', ['request' => $request->all()]);
+
+        $request->validate([
+            'quiz_id' => 'required|exists:quizzes,id',
+            'question_text' => 'required|string|max:255',
+            'type' => 'required|in:open,single_choice,multiple_choice',
+            'answers' => 'nullable|array',
+            'answers.*.text' => 'nullable|string|max:255',
+            'correct_answer' => 'nullable|array',
+            'expected_code' => 'nullable|string'
+        ]);
+
+        // Znajdź quiz
+        $quiz = Quiz::findOrFail($request->quiz_id);
+        Log::info('Znaleziono quiz.', ['quiz_id' => $quiz->id]);
+
+        // Tworzenie pytania
+        $question = $quiz->questions()->create([
+            'question_text' => $request->input('question_text'),
+            'type' => $request->input('type'),
+        ]);
+
+        Log::info('Utworzono pytanie.', ['question_id' => $question->id]);
+
+        if ($request->input('type') === 'open' && $request->filled('expected_code')) {
+            $question->answers()->create([
+                'text' => null,
+                'is_correct' => null,
+                'expected_code' => $request->input('expected_code')
+            ]);
+        } elseif (in_array($request->input('type'), ['single_choice', 'multiple_choice']) && $request->filled('answers')) {
+            foreach ($request->input('answers') as $index => $answerData) {
+                $isCorrect = in_array($index, $request->input('correct_answer', []));
+                Log::info('Tworzenie odpowiedzi.', ['text' => $answerData['text'], 'is_correct' => $isCorrect]);
+
+                $question->answers()->create([
+                    'text' => $answerData['text'],
+                    'is_correct' => $isCorrect,
+                    'expected_code' => null
                 ]);
             }
         }
 
-        // Po utworzeniu quizu przekierowanie użytkownika do panelu z listą jego quizów
-        return redirect()->route('user.dashboard')->with('success', 'Quiz został pomyślnie utworzony!');
+        Log::info('Pytanie i odpowiedzi zostały zapisane.');
+
+        return response()->json(['message' => 'Question saved successfully']);
     }
 }

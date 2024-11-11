@@ -5,7 +5,7 @@
             <div class="flex">
                 <!-- Logo -->
                 <div class="shrink-0 flex items-center">
-                    <a href="{{ route('dashboard') }}">
+                    <a href="{{ route('user.dashboard') }}">
                         <x-application-logo class="block h-9 w-auto fill-current text-gray-800" />
                     </a>
                 </div>
@@ -14,15 +14,20 @@
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex">
                     @if(Auth::check() && Auth::user()->admin)
                         <!-- Jeśli użytkownik jest administratorem, przenosi na panel admina -->
-                        <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('dashboard')">
+                        <x-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
                             {{ __('Admin Dashboard') }}
                         </x-nav-link>
                     @else
                         <!-- Jeśli użytkownik nie jest adminem, przenosi na panel użytkownika -->
-                        <x-nav-link :href="route('user.dashboard')" :active="request()->routeIs('dashboard')">
+                        <x-nav-link :href="route('user.dashboard')" :active="request()->routeIs('user.dashboard')">
                             {{ __('Dashboard') }}
                         </x-nav-link>
                     @endif
+
+                    <!-- Nowa zakładka Grupy -->
+                    <x-nav-link :href="route('groups.index')" :active="request()->routeIs('groups.index')">
+                        {{ __('Grupy') }}
+                    </x-nav-link>
                 </div>
             </div>
 
@@ -77,15 +82,20 @@
         <div class="pt-2 pb-3 space-y-1">
             @if(Auth::check() && Auth::user()->admin)
                 <!-- Jeśli użytkownik jest administratorem, przenosi na panel admina -->
-                <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('dashboard')">
+                <x-responsive-nav-link :href="route('admin.dashboard')" :active="request()->routeIs('admin.dashboard')">
                     {{ __('Admin Dashboard') }}
                 </x-responsive-nav-link>
             @else
                 <!-- Jeśli użytkownik nie jest adminem, przenosi na panel użytkownika -->
-                <x-responsive-nav-link :href="route('user.dashboard')" :active="request()->routeIs('dashboard')">
+                <x-responsive-nav-link :href="route('user.dashboard')" :active="request()->routeIs('user.dashboard')">
                     {{ __('Dashboard') }}
                 </x-responsive-nav-link>
             @endif
+
+            <!-- Nowa zakładka Grupy -->
+            <x-responsive-nav-link :href="route('groups.index')" :active="request()->routeIs('groups.index')">
+                {{ __('Grupy') }}
+            </x-responsive-nav-link>
         </div>
 
         <!-- Responsive Settings Options -->

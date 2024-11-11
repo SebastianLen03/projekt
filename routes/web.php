@@ -4,75 +4,91 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\User\UserDashboardController;
-use App\Http\Controllers\QuizController;
+use App\Http\Controllers\QuizManageController;
 use App\Http\Controllers\QuizShowController;
-use App\Http\Controllers\QuizCreateController;
-use App\Http\Controllers\QuizDestroyController;
 use App\Http\Controllers\QuizResultsController;
+use App\Http\Controllers\GroupController; // Poprawny import GroupController
 
+// Trasy profilu użytkownika
+Route::middleware('auth')->group(function () {
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::post('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+});
+
+// Strona główna
 Route::get('/', function () {
     return view('welcome');
 });
 
-Route::get('/dashboard', [UserDashboardController::class, 'index'])
-->name('dashboard')
-->middleware('auth');
+// Dashboard użytkownika
+Route::get('/user/dashboard', [UserDashboardController::class, 'index'])->name('user.dashboard')->middleware('auth');
 
-Route::get('/dashboard', function () {
-    return view('dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
-
-// Route odpowiedzialne za edycje profilu
+// Trasy zarządzania quizami
 Route::middleware('auth')->group(function () {
-    Route::get('/profile', [ProfileController::class, 'edit'])  
-        ->name('profile.edit');
-    Route::patch('/profile', [ProfileController::class, 'update'])  
-        ->name('profile.update');
-    Route::delete('/profile', [ProfileController::class, 'destroy'])    
-        ->name('profile.destroy');
+    // Tworzenie, edycja i usuwanie quizów
+    Route::get('/quizzes/create', [QuizManageController::class, 'createNewQuiz'])->name('quizzes.create');
+    Route::get('/quizzes/{quiz}/edit', [QuizManageController::class, 'edit'])->name('quizzes.edit');
+    Route::post('/quizzes', [QuizManageController::class, 'store'])->name('quizzes.store');
+    Route::put('/quizzes/{quiz}', [QuizManageController::class, 'update'])->name('quizzes.update');
+    Route::delete('/quizzes/{quiz}', [QuizManageController::class, 'destroy'])->name('quizzes.destroy');
+
+    // Zapis całego quizu (quiz wraz z pytaniami i odpowiedziami)
+    Route::post('/quizzes/{quiz}/saveAll', [QuizManageController::class, 'saveAll'])->name('quizzes.saveAll');
+
+    // Zmiana statusu quizu (np. aktywny/nieaktywny)
+    Route::post('/quizzes/{quiz}/toggleStatus', [QuizManageController::class, 'toggleStatus'])->name('quizzes.toggleStatus');
+
+    // Zarządzanie pytaniami w quizach
+    Route::post('/questions', [QuizManageController::class, 'storeQuestion'])->name('questions.store');
+    Route::put('/questions/{question}', [QuizManageController::class, 'updateQuestion'])->name('questions.update');
+    Route::delete('/questions/{question}', [QuizManageController::class, 'deleteQuestion'])->name('questions.destroy');
+
+    // Zarządzanie odpowiedziami do pytań
+    Route::post('/answers', [QuizManageController::class, 'storeAnswer'])->name('answers.store');
+    Route::put('/answers/{answer}', [QuizManageController::class, 'updateAnswer'])->name('answers.update');
+    Route::delete('/answers/{answer}', [QuizManageController::class, 'deleteAnswer'])->name('answers.destroy');
 });
 
-//Route dla admina
-Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])
-    ->name('admin.dashboard')
-    ->middleware('auth');
-Route::put('/admin/users/{id}', [AdminDashboardController::class, 'update'])->name('admin.users.update');
-
+// Trasy zarządzania grupami
+Route::middleware(['auth'])->group(function () {
+    // CRUD dla grup
+    Route::resource('groups', GroupController::class);
     
+    // Sprawdź użytkownika po adresie e-mail
+    Route::post('/groups/check-user', [GroupController::class, 'checkUser'])->name('groups.checkUser');
 
-// Route dla użytkownika
-Route::get('/user/dashboard', [UserDashboardController::class, 'index'])
-    ->name('user.dashboard')
-    ->middleware('auth');
+    // Wyślij zaproszenie do grupy
+    Route::post('/groups/send-invitation', [GroupController::class, 'sendInvitation'])->name('groups.sendInvitation');
 
-// Trasy dla quizów dostępne tylko dla zalogowanych użytkowników
-Route::middleware('auth')->group(function () {
+    // Dodaj użytkownika do grupy (jeżeli zaproszenie zostało zaakceptowane)
+    Route::post('/groups/{group}/add-user', [GroupController::class, 'addUserToGroup'])->name('groups.addUser');
 
-    Route::get('/quizzes/create', [QuizcreateController::class, 'create'])
-        ->name('quizzes.create');
-    Route::post('/quizzes', [QuizCreateController::class, 'store'])
-        ->name('quizzes.store');
+    // Otrzymane zaproszenia do grup
+    Route::get('/groups/invitations', [GroupController::class, 'viewInvitations'])->name('groups.invitations');
 
-    Route::get('/quizzes/{quiz}', [QuizShowController::class, 'show'])
-        ->name('quizzes.show');
+    // Akceptacja lub odrzucenie zaproszenia do grupy
+    Route::post('/groups/invitations/{invitation}/accept', [GroupController::class, 'acceptInvitation'])->name('groups.invitations.accept');
+    Route::post('/groups/invitations/{invitation}/reject', [GroupController::class, 'rejectInvitation'])->name('groups.invitations.reject');
 
-    Route::get('/quizzes/{quiz}/solve', [QuizController::class, 'solve'])
-        ->name('quizzes.solve'); 
-    Route::post('/quizzes/{quiz}/submit', [QuizController::class, 'submitAnswers'])
-        ->name('quizzes.submit');
+    // Usuwanie użytkownika z grupy
+    Route::delete('/groups/{group}/remove-user/{user}', [GroupController::class, 'removeUserFromGroup'])->name('groups.removeUser');
 
-    Route::get('/quizzes/{quiz}/results', [QuizResultsController::class, 'results'])
-        ->name('quizzes.results');
-       
-    Route::delete('/quizzes/{quiz}', [QuizDestroyController::class, 'destroy'])
-    ->name('quizzes.destroy');
-
-    Route::get('/quizzes/{quiz}/attempts', [UserDashboardController::class, 'getUserAttempts'])
-        ->name('quizzes.attempts');
-
-    Route::get('/quizzes/attempts/{attempt_uuid}/answers', [UserDashboardController::class, 'answers']);
+    // Nadawanie i odbieranie roli administratora w grupie
+    Route::patch('/groups/{group}/toggle-admin/{user}', [GroupController::class, 'toggleAdminRole'])->name('groups.toggleAdmin');
 });
 
+// Trasy administratora
+Route::middleware('auth')->group(function () {
+    Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
+    Route::post('/admin/users/{id}', [AdminDashboardController::class, 'update'])->name('admin.users.update');
+});
+
+// Trasy wyświetlania i rozwiązywania quizów
+Route::get('/quizzes/{quiz}', [QuizShowController::class, 'show'])->name('quizzes.show');
+Route::get('/quizzes/{quiz}/solve', [QuizShowController::class, 'solve'])->name('quizzes.solve');
+Route::post('/quizzes/{quiz}/submit', [QuizShowController::class, 'submitAnswers'])->name('quizzes.submit');
+Route::get('/quizzes/{quiz}/results', [QuizResultsController::class, 'results'])->name('quizzes.results');
+
+// Wymagane trasy dla autoryzacji (generowane przez Laravel Breeze lub inne)
 require __DIR__.'/auth.php';
-
-
