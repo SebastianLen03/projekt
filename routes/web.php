@@ -5,9 +5,10 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\User\UserDashboardController;
 use App\Http\Controllers\QuizManageController;
-use App\Http\Controllers\QuizShowController;
-use App\Http\Controllers\QuizResultsController;
 use App\Http\Controllers\GroupController; // Poprawny import GroupController
+use App\Http\Controllers\Quiz\QuizSolveController;
+use App\Http\Controllers\Quiz\QuizResultsController; // Dodany kontroler do obsługi wyników quizu
+use App\Http\Controllers\Quiz\QuizAttemptsController;
 
 // Trasy profilu użytkownika
 Route::middleware('auth')->group(function () {
@@ -48,13 +49,23 @@ Route::middleware('auth')->group(function () {
     Route::post('/answers', [QuizManageController::class, 'storeAnswer'])->name('answers.store');
     Route::put('/answers/{answer}', [QuizManageController::class, 'updateAnswer'])->name('answers.update');
     Route::delete('/answers/{answer}', [QuizManageController::class, 'deleteAnswer'])->name('answers.destroy');
+
+    // Resetowanie podejść
+    Route::post('/quizzes/{quiz}/reset-attempts', [QuizManageController::class, 'resetAttempts'])->name('quizzes.resetAttempts');
+
+    // Rozwiązywanie quizów i przesyłanie odpowiedzi
+    Route::get('/quizzes/{quiz}/solve', [QuizSolveController::class, 'solve'])->name('quizzes.solve');
+    Route::post('/quizzes/{quiz}/submit', [QuizSolveController::class, 'submitAnswers'])->name('quizzes.submit');
+
+    // Trasa wyników quizu
+    Route::get('/quizzes/{quiz}/results', [QuizResultsController::class, 'results'])->name('quizzes.results');
 });
 
 // Trasy zarządzania grupami
 Route::middleware(['auth'])->group(function () {
     // CRUD dla grup
     Route::resource('groups', GroupController::class);
-    
+
     // Sprawdź użytkownika po adresie e-mail
     Route::post('/groups/check-user', [GroupController::class, 'checkUser'])->name('groups.checkUser');
 
@@ -76,6 +87,9 @@ Route::middleware(['auth'])->group(function () {
 
     // Nadawanie i odbieranie roli administratora w grupie
     Route::patch('/groups/{group}/toggle-admin/{user}', [GroupController::class, 'toggleAdminRole'])->name('groups.toggleAdmin');
+
+
+    Route::get('/quizzes/{quizId}/attempts', [QuizAttemptsController::class, 'showAttempts'])->name('quizzes.attempts');
 });
 
 // Trasy administratora
@@ -83,12 +97,6 @@ Route::middleware('auth')->group(function () {
     Route::get('/admin/dashboard', [AdminDashboardController::class, 'index'])->name('admin.dashboard');
     Route::post('/admin/users/{id}', [AdminDashboardController::class, 'update'])->name('admin.users.update');
 });
-
-// Trasy wyświetlania i rozwiązywania quizów
-Route::get('/quizzes/{quiz}', [QuizShowController::class, 'show'])->name('quizzes.show');
-Route::get('/quizzes/{quiz}/solve', [QuizShowController::class, 'solve'])->name('quizzes.solve');
-Route::post('/quizzes/{quiz}/submit', [QuizShowController::class, 'submitAnswers'])->name('quizzes.submit');
-Route::get('/quizzes/{quiz}/results', [QuizResultsController::class, 'results'])->name('quizzes.results');
 
 // Wymagane trasy dla autoryzacji (generowane przez Laravel Breeze lub inne)
 require __DIR__.'/auth.php';

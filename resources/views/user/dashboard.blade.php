@@ -63,10 +63,20 @@
                                                 <div class="flex justify-between items-center">
                                                     <span class="font-semibold text-lg">{!! $quiz->title !!}</span>
                                                     <div class="flex space-x-4">
-                                                        <a href="{{ route('quizzes.solve', $quiz->id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                                                            Rozpocznij quiz
-                                                        </a>
-                                                        <button class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded show-attempts" data-quiz-id="{{ $quiz->id }}">
+                                                        @php
+                                                            $attemptCount = $userAttempts[$quiz->id] ?? 0;
+                                                        @endphp
+
+                                                        <!-- Nowy warunek dla quizów jednorazowych -->
+                                                        @if(!$quiz->multiple_attempts && $attemptCount >= 1)
+                                                            <span class="text-gray-600 font-bold">Nie można ponownie przystąpić do quizu</span>
+                                                        @else
+                                                            <a href="{{ route('quizzes.solve', $quiz->id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                                                                Rozpocznij quiz
+                                                            </a>
+                                                        @endif
+
+                                                        <button onclick="window.location='{{ route('quizzes.attempts', $quiz->id) }}'" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
                                                             Moje podejścia
                                                         </button>
                                                     </div>
@@ -108,15 +118,24 @@
                                         <div class="flex justify-between items-center">
                                             <span class="font-semibold text-lg">{!! $quiz->title !!}</span>
                                             <div class="flex space-x-4">
-                                                <a href="{{ route('quizzes.solve', $quiz->id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
-                                                    Rozpocznij quiz
-                                                </a>
+                                                @php
+                                                    $attemptCount = $userAttempts[$quiz->id] ?? 0;
+                                                @endphp
+
+                                                <!-- Nowy warunek dla quizów jednorazowych -->
+                                                @if(!$quiz->multiple_attempts && $attemptCount >= 1)
+                                                    <span class="text-gray-600 font-bold">Nie można ponownie przystąpić do quizu</span>
+                                                @else
+                                                    <a href="{{ route('quizzes.solve', $quiz->id) }}" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                                                        Rozpocznij quiz
+                                                    </a>
+                                                @endif
+                                                
                                                 <button class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded show-attempts" data-quiz-id="{{ $quiz->id }}">
                                                     Moje podejścia
                                                 </button>
                                             </div>
                                         </div>
-
                                         <div class="user-attempts hidden mt-4" id="user-attempts-{{ $quiz->id }}">
                                             <h4 class="text-md font-semibold">Moje podejścia</h4>
                                             <table class="table-auto w-full text-left mt-4">

@@ -5,7 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Quiz;
 use App\Models\Question;
 use App\Models\Answer;
-use App\Models\Group;
+use App\Models\userAttempt;
+use App\Models\userAnswer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
@@ -20,19 +21,23 @@ class QuizManageController extends Controller
     public function edit($id)
     {
         $quiz = Quiz::with(['questions.answers', 'groups'])->findOrFail($id);
-
+    
         // Sprawdź, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== Auth::id()) {
             abort(403, 'Nie masz uprawnień do edycji tego quizu.');
         }
-
+    
         // Pobierz grupy, do których użytkownik należy
         $userGroups = Auth::user()->groups;
-
+    
+        // Pobierz listę użytkowników, którzy podjęli quiz
+        $userAttempts = $quiz->userAttempts()->with('user')->get();
+    
         return view('quizzes.manage', [
             'quiz' => $quiz,
             'questions' => $quiz->questions,
             'userGroups' => $userGroups, // Przekazanie grup użytkownika do widoku
+            'userAttempts' => $userAttempts->unique('user_id'), // Przekazanie podejść użytkowników do widoku, unikalnie według użytkownika
         ]);
     }
 
@@ -56,7 +61,8 @@ class QuizManageController extends Controller
         $validatedData = $request->validate([
             'title' => 'required|string',
             'time_limit' => 'required|integer|min:1',
-            'is_public' => 'boolean', // Dodanie walidacji dla pola is_public
+            'is_public' => 'boolean',
+            'multiple_attempts' => 'boolean',
             'groups' => 'nullable|array',
             'groups.*' => 'exists:groups,id',
             'questions' => 'required|array|min:1',
@@ -65,7 +71,6 @@ class QuizManageController extends Controller
             'questions.*.type' => 'required|in:open,single_choice,multiple_choice',
             'questions.*.expected_code' => 'nullable|string',
             'questions.*.answers' => 'nullable|array',
-            // Usunięto walidację pola 'questions.*.answers.*.id'
             'questions.*.answers.*.text' => 'required|string',
             'questions.*.answers.*.is_correct' => 'required|boolean',
         ]);
@@ -73,9 +78,10 @@ class QuizManageController extends Controller
         // Aktualizuj quiz
         $quiz->title = $validatedData['title'];
         $quiz->time_limit = $validatedData['time_limit'];
-        $quiz->is_public = $validatedData['is_public'] ?? false; // Ustawienie is_public
+        $quiz->is_public = $validatedData['is_public'] ?? false;
+        $quiz->multiple_attempts = $validatedData['multiple_attempts'] ?? false; // Zaktualizowano pole "multiple_attempts"
         $quiz->save();
-
+        
         // Aktualizacja grup przypisanych do quizu (tylko jeśli quiz nie jest publiczny)
         if (!$quiz->is_public && isset($validatedData['groups'])) {
             // Sprawdź, czy wszystkie wybrane grupy należą do użytkownika
@@ -143,7 +149,7 @@ class QuizManageController extends Controller
                 }
             }
 
-            $updatedQuestion = [
+            $updatedQuestions[] = [
                 'id' => $question->id,
                 'temp_id' => $questionData['id'] ?? null,
                 'answers' => $question->answers->map(function ($answer) {
@@ -153,8 +159,6 @@ class QuizManageController extends Controller
                     ];
                 }),
             ];
-
-            $updatedQuestions[] = $updatedQuestion;
         }
 
         return response()->json([
@@ -162,6 +166,7 @@ class QuizManageController extends Controller
             'updated_questions' => $updatedQuestions,
         ]);
     }
+
 
     /**
      * Aktualizacja podstawowych informacji o quizie.
@@ -434,4 +439,24 @@ class QuizManageController extends Controller
 
         return response()->json(['message' => 'Odpowiedź została pomyślnie usunięta.']);
     }
+
+    public function resetAttempts(Request $request, $quizId)
+    {
+        $userId = $request->input('user_id');
+
+        // Usuń podejścia użytkownika do quizu
+        UserAttempt::where('user_id', $userId)
+            ->where('quiz_id', $quizId)
+            ->delete();
+
+        // Usuń odpowiedzi użytkownika na pytania z tego quizu
+        $questionIds = Question::where('quiz_id', $quizId)->pluck('id');
+
+        UserAnswer::where('user_id', $userId)
+            ->whereIn('question_id', $questionIds)
+            ->delete();
+
+        return back()->with('message', 'Podejścia użytkownika oraz jego odpowiedzi zostały zresetowane.');
+    }
+
 }

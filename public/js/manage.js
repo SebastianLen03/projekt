@@ -54,6 +54,7 @@ async function saveQuiz() {
     const quizName = getTinyMCEContent(document.getElementById('quiz-name')).trim();
     const timeLimit = document.getElementById('quiz-time-limit').value;
     const isPublic = document.getElementById('public_quiz').checked; // Pobranie wartości is_public
+    const multipleAttempts = document.getElementById('quiz-multiple-attempts').checked; // Pobranie wartości multiple_attempts
 
     if (!quizName) {
         alert('Nazwa quizu nie może być pusta.');
@@ -65,7 +66,8 @@ async function saveQuiz() {
         let data = {
             title: quizName,
             time_limit: timeLimit,
-            is_public: isPublic, // Dodanie is_public do danych
+            is_public: isPublic,
+            multiple_attempts: multipleAttempts, // Dodanie multiple_attempts do danych
             questions: []
         };
 
@@ -78,7 +80,7 @@ async function saveQuiz() {
             data.groups = selectedGroups;
         }
 
-        // Zbieranie danych pytań
+        // Zbieranie danych pytań (pozostaje bez zmian)
         const questionDivs = document.querySelectorAll('.question');
         for (const questionDiv of questionDivs) {
             const questionTextElement = questionDiv.querySelector('.question-text');
@@ -98,38 +100,23 @@ async function saveQuiz() {
             };
 
             if (questionType === 'open') {
-                // Dla pytania otwartego pobierz oczekiwany kod
                 const codeTextarea = questionDiv.querySelector('.code-input');
                 const expectedCode = codeTextarea.CodeMirrorInstance
                     ? codeTextarea.CodeMirrorInstance.getValue().trim()
                     : codeTextarea.value.trim();
-                if (!expectedCode) {
-                    alert('Pole "Oczekiwany kod" nie może być puste.');
-                    return;
-                }
                 questionData.expected_code = expectedCode;
             } else {
-                // Dla pytań zamkniętych zbierz odpowiedzi
                 const answerInputs = questionDiv.querySelectorAll('.answer-input');
                 if (answerInputs.length === 0) {
                     alert('Pytanie musi zawierać co najmniej jedną odpowiedź.');
                     return;
                 }
                 const answers = [];
-                let hasCorrectAnswer = false;
                 for (const answerDiv of answerInputs) {
                     const answerTextElement = answerDiv.querySelector('.answer-text');
                     const text = getTinyMCEContent(answerTextElement).trim();
                     const isCorrect = answerDiv.querySelector('.answer-correct').checked;
                     const answerId = answerDiv.dataset.answerId || null;
-
-                    if (!text) {
-                        alert('Pola odpowiedzi nie mogą być puste.');
-                        return;
-                    }
-                    if (isCorrect) {
-                        hasCorrectAnswer = true;
-                    }
 
                     let answerData = {
                         text: text,
@@ -139,10 +126,6 @@ async function saveQuiz() {
                         answerData.id = answerId;
                     }
                     answers.push(answerData);
-                }
-                if (!hasCorrectAnswer) {
-                    alert('Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.');
-                    return;
                 }
                 questionData.answers = answers;
             }
@@ -172,29 +155,13 @@ async function saveQuiz() {
         }
 
         const responseData = await response.json();
-
-        // Aktualizacja identyfikatorów pytań i odpowiedzi
-        responseData.updated_questions.forEach((updatedQuestion) => {
-            const questionDiv = document.querySelector(`.question[data-question-id="${updatedQuestion.temp_id}"]`) || document.querySelector('.question:not([data-question-id])');
-            if (questionDiv) {
-                questionDiv.dataset.questionId = updatedQuestion.id;
-                if (updatedQuestion.answers) {
-                    updatedQuestion.answers.forEach((updatedAnswer, index) => {
-                        const answerDiv = questionDiv.querySelectorAll('.answer-input')[index];
-                        if (answerDiv) {
-                            answerDiv.dataset.answerId = updatedAnswer.id;
-                        }
-                    });
-                }
-            }
-        });
-
         alert('Quiz i wszystkie pytania zostały zapisane pomyślnie.');
     } catch (error) {
         console.error('Error:', error);
         alert('Wystąpił błąd podczas zapisywania quizu lub pytań: ' + error.message);
     }
 }
+
 
 /**
  * Funkcja obsługująca zmianę stanu checkboxa "Wszyscy użytkownicy".

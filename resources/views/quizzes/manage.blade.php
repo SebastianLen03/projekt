@@ -1,5 +1,3 @@
-<!-- resources/views/quizzes/manage.blade.php -->
-
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
@@ -56,6 +54,13 @@
                         <!-- Pole limitu czasu -->
                         <label class="block font-bold mb-2">Limit czasu (w minutach):</label>
                         <input type="number" id="quiz-time-limit" name="time_limit" value="{{ $quiz->time_limit }}" class="w-full mb-4 p-2 border border-gray-300 rounded">
+
+                        <!-- Pole liczby podejść (czy quiz można rozwiązywać wiele razy) -->
+                        <label class="block font-bold mb-2">Czy quiz można rozwiązać wiele razy?</label>
+                        <div class="flex items-center mb-4">
+                            <input type="checkbox" id="quiz-multiple-attempts" name="multiple_attempts" value="1" {{ $quiz->multiple_attempts ? 'checked' : '' }}>
+                            <label for="quiz-multiple-attempts" class="ml-2">Tak, quiz może być rozwiązywany wiele razy.</label>
+                        </div>
 
                         <!-- Wybór udostępnienia quizu -->
                         <label class="block font-bold mb-2">Udostępnij quiz:</label>
@@ -144,6 +149,27 @@
 
                     <!-- Przycisk dodania nowego pytania -->
                     <button type="button" onclick="addQuestion()" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded mt-4">Dodaj Pytanie</button>
+
+                    <hr class="my-6">
+
+                    <!-- Resetowanie podejść użytkowników -->
+                    <div class="reset-attempts-section mt-6">
+                        <h3 class="text-xl font-semibold text-gray-800 mb-4">Resetuj podejścia użytkowników</h3>
+                        <form action="{{ route('quizzes.resetAttempts', $quiz->id) }}" method="POST">
+                            @csrf
+                            <label for="user_id" class="block text-sm font-medium text-gray-700 mb-2">Resetuj podejścia użytkownika:</label>
+                            @if(!empty($quiz->userAttempts) && $quiz->userAttempts->isNotEmpty())
+                                <select name="user_id" id="user_id" class="w-full p-2 border border-gray-300 rounded-md mb-4">
+                                    @foreach($quiz->userAttempts->unique('user_id') as $attempt)
+                                        <option value="{{ $attempt->user->id }}">{{ $attempt->user->name }} ({{ $attempt->user->email }})</option>
+                                    @endforeach
+                                </select>
+                                <button type="submit" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded">Resetuj Podejścia</button>
+                            @else
+                                <p class="text-gray-700">Brak użytkowników, których podejścia można zresetować.</p>
+                            @endif
+                        </form>
+                    </div>
                 </div>
             </div>
         </div>

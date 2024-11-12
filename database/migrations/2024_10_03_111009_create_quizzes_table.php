@@ -12,6 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('title');
             $table->boolean('is_public')->default(false);
+            $table->boolean('multiple_attempts')->default(false);
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->integer('time_limit')->nullable()->default(null);
             $table->time('available_from')->nullable();

@@ -14,12 +14,13 @@ class Quiz extends Model
     protected $table = 'quizzes';
 
     // Kolumny, które mogą być masowo przypisywane
-    protected $fillable = ['title',
+    protected $fillable = [
+    'title',
     'time_limit',
     'user_id',
-    'is_public'
+    'is_public',
+    'multiple_attempts'
     ];
-
 
     // Relacja z modelem User (zakładamy, że quiz jest przypisany do użytkownika, który go stworzył)
     public function user()
@@ -39,10 +40,20 @@ class Quiz extends Model
         return $query->where('is_active', true);
     }
 
-// W modelu Quiz.php
-public function groups()
-{
-    return $this->belongsToMany(Group::class, 'group_quiz', 'quiz_id', 'group_id');
-}
+    // W modelu Quiz.php
+    public function groups()
+    {
+        return $this->belongsToMany(Group::class, 'group_quiz', 'quiz_id', 'group_id');
+    }
+
+    /**
+     * Relacja z próbami podejścia użytkowników.
+     *
+     * @return \Illuminate\Database\Eloquent\Relations\HasMany
+     */
+    public function userAttempts()
+    {
+        return $this->hasMany(UserAttempt::class);
+    }
 
 }
