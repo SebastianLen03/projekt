@@ -20,13 +20,30 @@ class QuizAttemptsController extends Controller
     public function showAttempts($quizId)
     {
         $userId = Auth::id();
+        
+        // Pobierz quiz wraz z pytaniami i odpowiedziami
         $quiz = Quiz::with('questions.answers')->findOrFail($quizId);
+
+        // Sprawdź, czy użytkownik ma prawo przeglądać podejścia do quizu
+        if (!$quiz->is_public && $quiz->user_id !== $userId && !$this->userHasAttemptedQuiz($quizId, $userId)) {
+            abort(403, 'Nie masz uprawnień do przeglądania tego quizu.');
+        }
 
         // Pobierz podejścia użytkownika dla danego quizu
         $userAttempts = UserAttempt::where('user_id', $userId)
             ->where('quiz_id', $quizId)
             ->orderBy('created_at', 'desc')
             ->get();
+
+        // Jeśli użytkownik nie miał podejść, pokaż komunikat zamiast błędu
+        if ($userAttempts->isEmpty()) {
+            return view('quizzes.attempts', [
+                'quiz' => $quiz,
+                'userAttempts' => [],
+                'groupedUserAnswers' => [],
+                'message' => 'Nie masz jeszcze żadnych podejść do tego quizu.'
+            ]);
+        }
 
         // Pobierz odpowiedzi użytkownika na pytania z tego quizu
         $userAnswers = UserAnswer::where('user_id', $userId)
@@ -36,7 +53,7 @@ class QuizAttemptsController extends Controller
         // Grupowanie odpowiedzi użytkownika według `attempt_id` (będzie to pomocne przy renderowaniu w widoku)
         $groupedUserAnswers = $userAnswers->groupBy('attempt_id');
 
-        // Logowanie, aby upewnić się, że dane są prawidłowe
+        // Logowanie, aby upewnić się, że dane są prawidłowe (opcjonalnie usunąć w produkcji)
         Log::info('Quiz Data:', ['quiz' => $quiz]);
         Log::info('User Attempts Data:', $userAttempts->toArray());
         Log::info('Grouped User Answers Data:', $groupedUserAnswers->toArray());
@@ -47,5 +64,19 @@ class QuizAttemptsController extends Controller
             'userAttempts' => $userAttempts,
             'groupedUserAnswers' => $groupedUserAnswers,
         ]);
+    }
+
+    /**
+     * Sprawdza, czy użytkownik miał co najmniej jedno podejście do quizu.
+     *
+     * @param int $quizId
+     * @param int $userId
+     * @return bool
+     */
+    protected function userHasAttemptedQuiz($quizId, $userId)
+    {
+        return UserAttempt::where('user_id', $userId)
+            ->where('quiz_id', $quizId)
+            ->exists();
     }
 }

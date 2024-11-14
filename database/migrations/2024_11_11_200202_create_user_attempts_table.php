@@ -12,7 +12,9 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->foreignId('quiz_id')->constrained()->onDelete('cascade');
-            $table->integer('attempt_number'); // Liczba podejścia
+            $table->integer('attempt_number');
+            $table->integer('total_score')->nullable();
+            $table->integer('score')->default(0);
             $table->timestamps();
         });
     }

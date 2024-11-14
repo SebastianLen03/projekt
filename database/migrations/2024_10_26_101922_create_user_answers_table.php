@@ -16,6 +16,7 @@ return new class extends Migration
             $table->integer('attempt_id')->default(1);
             $table->text('open_answer')->nullable(); // Tekst odpowiedzi (dla pytań otwartych)
             $table->boolean('is_correct')->default(false); // Czy odpowiedź jest poprawna
+            $table->integer('score')->default(0);
             $table->timestamps();
         });
     }

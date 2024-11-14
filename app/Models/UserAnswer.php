@@ -20,6 +20,7 @@ class UserAnswer extends Model
         'open_answer',
         'is_correct',
         'attempt_id',
+        'score',
     ];
 
     /**

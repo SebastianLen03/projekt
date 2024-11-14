@@ -36,6 +36,11 @@
                                                     Usuń
                                                 </button>
                                             </form>
+
+                                            <!-- Dodano przycisk "Podejścia" -->
+                                            <a href="{{ route('quizzes.owner_attempts', $quiz->id) }}" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
+                                                Podejścia
+                                            </a>
                                         </div>
                                     </div>
                                 </li>
@@ -76,26 +81,10 @@
                                                             </a>
                                                         @endif
 
-                                                        <button onclick="window.location='{{ route('quizzes.attempts', $quiz->id) }}'" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
+                                                        <button onclick="window.location='{{ route('quizzes.user_attempts', $quiz->id) }}'" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">
                                                             Moje podejścia
                                                         </button>
                                                     </div>
-                                                </div>
-
-                                                <div class="user-attempts hidden mt-4" id="user-attempts-{{ $quiz->id }}">
-                                                    <h4 class="text-md font-semibold">Moje podejścia</h4>
-                                                    <table class="table-auto w-full text-left mt-4">
-                                                        <thead>
-                                                            <tr>
-                                                                <th class="px-4 py-2">Data podejścia</th>
-                                                                <th class="px-4 py-2">Wynik</th>
-                                                                <th class="px-4 py-2">Szczegóły</th>
-                                                            </tr>
-                                                        </thead>
-                                                        <tbody id="attempts-body-{{ $quiz->id }}">
-                                                            <!-- Wyniki zostaną tutaj dynamicznie załadowane -->
-                                                        </tbody>
-                                                    </table>
                                                 </div>
                                             </li>
                                         @endif
@@ -131,25 +120,10 @@
                                                     </a>
                                                 @endif
                                                 
-                                                <button class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded show-attempts" data-quiz-id="{{ $quiz->id }}">
+                                                <button onclick="window.location='{{ route('quizzes.user_attempts', $quiz->id) }}'" class="bg-gray-500 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded show-attempts" data-quiz-id="{{ $quiz->id }}">
                                                     Moje podejścia
                                                 </button>
                                             </div>
-                                        </div>
-                                        <div class="user-attempts hidden mt-4" id="user-attempts-{{ $quiz->id }}">
-                                            <h4 class="text-md font-semibold">Moje podejścia</h4>
-                                            <table class="table-auto w-full text-left mt-4">
-                                                <thead>
-                                                    <tr>
-                                                        <th class="px-4 py-2">Data podejścia</th>
-                                                        <th class="px-4 py-2">Wynik</th>
-                                                        <th class="px-4 py-2">Szczegóły</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody id="attempts-body-{{ $quiz->id }}">
-                                                    <!-- Wyniki zostaną tutaj dynamicznie załadowane -->
-                                                </tbody>
-                                            </table>
                                         </div>
                                     </li>
                                 @endif

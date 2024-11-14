@@ -22,22 +22,18 @@ class QuizManageController extends Controller
     {
         $quiz = Quiz::with(['questions.answers', 'groups'])->findOrFail($id);
     
-        // Sprawdź, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== Auth::id()) {
             abort(403, 'Nie masz uprawnień do edycji tego quizu.');
         }
-    
-        // Pobierz grupy, do których użytkownik należy
+
         $userGroups = Auth::user()->groups;
-    
-        // Pobierz listę użytkowników, którzy podjęli quiz
         $userAttempts = $quiz->userAttempts()->with('user')->get();
     
         return view('quizzes.manage', [
             'quiz' => $quiz,
             'questions' => $quiz->questions,
-            'userGroups' => $userGroups, // Przekazanie grup użytkownika do widoku
-            'userAttempts' => $userAttempts->unique('user_id'), // Przekazanie podejść użytkowników do widoku, unikalnie według użytkownika
+            'userGroups' => $userGroups,
+            'userAttempts' => $userAttempts->unique('user_id'),
         ]);
     }
 
@@ -51,13 +47,13 @@ class QuizManageController extends Controller
     public function saveAll(Request $request, $quizId)
     {
         $quiz = Quiz::findOrFail($quizId);
-
+    
         // Sprawdź, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== Auth::id()) {
             return response()->json(['message' => 'Nie masz uprawnień do edycji tego quizu.'], 403);
         }
-
-        // Walidacja danych wejściowych, w tym grup i opcji publicznej
+    
+        // Walidacja danych wejściowych
         $validatedData = $request->validate([
             'title' => 'required|string',
             'time_limit' => 'required|integer|min:1',
@@ -70,52 +66,54 @@ class QuizManageController extends Controller
             'questions.*.question_text' => 'required|string',
             'questions.*.type' => 'required|in:open,single_choice,multiple_choice',
             'questions.*.expected_code' => 'nullable|string',
+            'questions.*.points' => 'required|integer|min:1', // Pole dla punktów
+            'questions.*.points_type' => 'nullable|in:full,partial', // Nowe pole dla typu przyznawania punktów
             'questions.*.answers' => 'nullable|array',
             'questions.*.answers.*.text' => 'required|string',
             'questions.*.answers.*.is_correct' => 'required|boolean',
         ]);
-
+    
         // Aktualizuj quiz
         $quiz->title = $validatedData['title'];
         $quiz->time_limit = $validatedData['time_limit'];
         $quiz->is_public = $validatedData['is_public'] ?? false;
-        $quiz->multiple_attempts = $validatedData['multiple_attempts'] ?? false; // Zaktualizowano pole "multiple_attempts"
+        $quiz->multiple_attempts = $validatedData['multiple_attempts'] ?? false;
         $quiz->save();
-        
+    
         // Aktualizacja grup przypisanych do quizu (tylko jeśli quiz nie jest publiczny)
         if (!$quiz->is_public && isset($validatedData['groups'])) {
             // Sprawdź, czy wszystkie wybrane grupy należą do użytkownika
             $userGroupIds = Auth::user()->groups->pluck('id')->toArray();
             $selectedGroupIds = $validatedData['groups'];
-
+    
             foreach ($selectedGroupIds as $groupId) {
                 if (!in_array($groupId, $userGroupIds)) {
                     return response()->json(['message' => 'Nie masz uprawnień do przypisania quizu do wybranych grup.'], 403);
                 }
             }
-
+    
             // Synchronizuj grupy przypisane do quizu
             $quiz->groups()->sync($selectedGroupIds);
         } else {
             // Jeśli quiz jest publiczny lub nie wybrano żadnych grup, odłącz wszystkie
             $quiz->groups()->detach();
         }
-
+    
         $updatedQuestions = [];
-
+    
         foreach ($validatedData['questions'] as $questionData) {
             // Dodatkowa walidacja dla pytań zamkniętych
             if (in_array($questionData['type'], ['single_choice', 'multiple_choice'])) {
                 if (empty($questionData['answers']) || !is_array($questionData['answers'])) {
                     return response()->json(['message' => 'Pytania zamknięte muszą mieć odpowiedzi.'], 422);
                 }
-
+    
                 $correctAnswers = collect($questionData['answers'])->where('is_correct', true);
                 if ($correctAnswers->count() < 1) {
                     return response()->json(['message' => 'Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna w pytaniu: ' . strip_tags($questionData['question_text'])], 422);
                 }
             }
-
+    
             // Jeśli pytanie ma ID, aktualizuj je; w przeciwnym razie utwórz nowe
             if (!empty($questionData['id'])) {
                 $question = Question::findOrFail($questionData['id']);
@@ -123,18 +121,27 @@ class QuizManageController extends Controller
                 $question = new Question();
                 $question->quiz_id = $quiz->id;
             }
-
+    
             $question->question_text = $questionData['question_text'];
             $question->type = $questionData['type'];
+            $question->points = $questionData['points'];
+            
+            // Aktualizacja points_type, jeśli typ pytania to multiple_choice
+            if ($questionData['type'] === 'multiple_choice') {
+                $question->points_type = $questionData['points_type'] ?? 'full';
+            } else {
+                $question->points_type = null; // Nie dotyczy innych typów pytań
+            }
+    
             $question->save();
-
+    
             // Usuń istniejące odpowiedzi
             $question->answers()->delete();
-
+    
             if ($questionData['type'] === 'open') {
                 $answer = new Answer();
                 $answer->question_id = $question->id;
-                $answer->expected_code = $questionData['expected_code'];
+                $answer->expected_code = $questionData['expected_code'] ?? null;
                 $answer->text = null;
                 $answer->is_correct = null;
                 $answer->save();
@@ -148,7 +155,7 @@ class QuizManageController extends Controller
                     $answer->save();
                 }
             }
-
+    
             $updatedQuestions[] = [
                 'id' => $question->id,
                 'temp_id' => $questionData['id'] ?? null,
@@ -160,20 +167,20 @@ class QuizManageController extends Controller
                 }),
             ];
         }
-
+    
         return response()->json([
             'message' => 'Quiz i pytania zostały zapisane pomyślnie.',
             'updated_questions' => $updatedQuestions,
         ]);
-    }
+    }    
 
-
+    
     /**
      * Aktualizacja podstawowych informacji o quizie.
      * Używane przez AJAX.
      *
      * @param \Illuminate\Http\Request $request
-     * @param int $id
+     * @param int $idzz
      * @return \Illuminate\Http\JsonResponse
      */
     public function update(Request $request, $id)
@@ -262,12 +269,12 @@ class QuizManageController extends Controller
             'question_text' => 'required|string|max:500',
             'type' => 'required|in:open,single_choice,multiple_choice',
             'expected_code' => 'nullable|string',
+            'points' => 'required|integer|min:1',
             'answers' => 'nullable|array',
             'answers.*.text' => 'required|string|max:500',
             'answers.*.is_correct' => 'required|boolean',
         ]);
 
-        // Dodatkowa walidacja
         if (in_array($validatedData['type'], ['single_choice', 'multiple_choice'])) {
             $correctAnswers = collect($validatedData['answers'])->where('is_correct', true);
             if ($correctAnswers->count() < 1) {
@@ -278,7 +285,8 @@ class QuizManageController extends Controller
         $question = Question::create([
             'quiz_id' => $validatedData['quiz_id'],
             'question_text' => $validatedData['question_text'],
-            'type' => $validatedData['type']
+            'type' => $validatedData['type'],
+            'points' => $validatedData['points'],
         ]);
 
         if ($validatedData['type'] === 'open') {
@@ -322,6 +330,7 @@ class QuizManageController extends Controller
         $validatedData = $request->validate([
             'question_text' => 'required|string',
             'type' => 'required|in:open,single_choice,multiple_choice',
+            'points' => 'required|integer|min:1', // Nowe pole dla punktów
             'expected_code' => 'nullable|string',
             'answers' => 'nullable|array',
             'answers.*.text' => 'required|string',
@@ -338,7 +347,8 @@ class QuizManageController extends Controller
 
         $question->update([
             'question_text' => $validatedData['question_text'],
-            'type' => $validatedData['type']
+            'type' => $validatedData['type'],
+            'points' => $validatedData['points'], // Aktualizacja liczby punktów
         ]);
 
         // Usuń istniejące odpowiedzi

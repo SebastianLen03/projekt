@@ -15,11 +15,14 @@ class Quiz extends Model
 
     // Kolumny, które mogą być masowo przypisywane
     protected $fillable = [
-    'title',
-    'time_limit',
-    'user_id',
-    'is_public',
-    'multiple_attempts'
+        'title',
+        'time_limit',
+        'user_id',
+        'is_public',
+        'multiple_attempts',
+        'has_passing_criteria',
+        'passing_score',
+        'passing_percentage',
     ];
 
     // Relacja z modelem User (zakładamy, że quiz jest przypisany do użytkownika, który go stworzył)

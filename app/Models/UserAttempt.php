@@ -13,6 +13,8 @@ class UserAttempt extends Model
         'user_id',
         'quiz_id',
         'attempt_number',
+        'total_score',
+        'score',
     ];
 
     // Relacja do użytkownika
@@ -31,6 +33,11 @@ class UserAttempt extends Model
      * Relacja z modelem UserAnswer.
      */
     public function answers()
+    {
+        return $this->hasMany(UserAnswer::class, 'attempt_id');
+    }
+
+    public function userAnswers()
     {
         return $this->hasMany(UserAnswer::class, 'attempt_id');
     }

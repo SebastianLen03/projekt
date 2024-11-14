@@ -13,7 +13,11 @@ return new class extends Migration
             $table->id();
             $table->foreignId('quiz_id')->constrained()->onDelete('cascade');
             $table->string('question_text');
-            $table->enum('type', ['open', 'single_choice', 'multiple_choice']); // Ensure no default value is set
+            $table->enum('type', ['open', 'single_choice', 'multiple_choice']);
+            $table->integer('points')->default(1);
+            $table->enum('points_type', ['full', 'partial'])
+                  ->default('full')
+                  ->nullable();
             $table->timestamps();
         });
     }

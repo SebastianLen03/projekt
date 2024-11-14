@@ -15,6 +15,9 @@ return new class extends Migration
             $table->boolean('multiple_attempts')->default(false);
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->integer('time_limit')->nullable()->default(null);
+            $table->boolean('has_passing_criteria')->default(false);
+            $table->integer('passing_score')->nullable();
+            $table->integer('passing_percentage')->nullable();
             $table->time('available_from')->nullable();
             $table->time('available_to')->nullable();
             $table->boolean('is_active')->default(false);

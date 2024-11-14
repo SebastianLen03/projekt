@@ -50,7 +50,8 @@ class QuizSolveController extends Controller
             'userAttemptId' => $userAttempt->id,
         ]);
     }
-
+    
+    // Zapisz odpowiedzi użytkownika
     // Zapisz odpowiedzi użytkownika
     public function submitAnswers(Request $request, $quizId)
     {
@@ -63,6 +64,8 @@ class QuizSolveController extends Controller
 
         // Pobierz istniejące podejście użytkownika
         $userAttempt = UserAttempt::findOrFail($userAttemptId);
+
+        $totalPoints = 0;
 
         // Przechowywanie odpowiedzi użytkownika
         foreach ($questions as $questionId => $response) {
@@ -81,11 +84,19 @@ class QuizSolveController extends Controller
                         $testResult = $this->runCodeTest($openAnswer, $answer->expected_code);
                     }
 
+                    // Ustal punktację
+                    $questionScore = $testResult['is_correct'] ? $question->points : 0;
+
+                    // Dodaj punkty do sumy punktów całkowitych podejścia
+                    $totalPoints += $questionScore;
+
+                    // Zapisz odpowiedź użytkownika
                     UserAnswer::create([
                         'user_id' => $user->id,
                         'question_id' => $questionId,
                         'open_answer' => $openAnswer,
                         'is_correct' => $testResult['is_correct'],
+                        'score' => $questionScore,
                         'attempt_id' => $userAttempt->id, // Użycie właściwego `attempt_id` z tabeli `user_attempts`
                     ]);
                 }
@@ -96,20 +107,31 @@ class QuizSolveController extends Controller
                 foreach ((array) $answers as $answerId) {
                     $answer = Answer::findOrFail($answerId);
 
+                    // Ustal punktację dla odpowiedzi zamkniętej
+                    $questionScore = $answer->is_correct ? $question->points : 0;
+
+                    // Dodaj punkty do sumy punktów całkowitych podejścia
+                    $totalPoints += $questionScore;
+
+                    // Zapisz odpowiedź użytkownika
                     UserAnswer::create([
                         'user_id' => $user->id,
                         'question_id' => $questionId,
                         'answer_id' => $answerId,
                         'is_correct' => $answer->is_correct,
+                        'score' => $questionScore,
                         'attempt_id' => $userAttempt->id, // Użycie właściwego `attempt_id` z tabeli `user_attempts`
                     ]);
                 }
             }
         }
 
+        // Aktualizacja podejścia użytkownika z sumą punktów
+        $userAttempt->update(['score' => $totalPoints]);
+
         // Przekierowanie na stronę wyników po rozwiązaniu quizu
         return redirect()->route('user.dashboard')
-            ->with('message', 'Twoje odpowiedzi zostały zapisane.');
+            ->with('message', 'Twoje odpowiedzi zostały zapisane. Uzyskałeś ' . $totalPoints . ' punktów.');
     }
 
     /**

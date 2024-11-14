@@ -80,6 +80,26 @@
                             @endforeach
                         </div>
 
+                        <!-- Typ zdawalności (procentowy lub punktowy) -->
+                        <label class="block font-bold mb-2">Typ zdawalności:</label>
+                        <select id="passing-type" name="passing_type" class="shadow border rounded w-full py-2 px-3 text-gray-700 mb-4" onchange="togglePassingScoreFields()">
+                            <option value="">Brak</option>
+                            <option value="points" {{ $quiz->passing_score ? 'selected' : '' }}>Punktowy</option>
+                            <option value="percentage" {{ $quiz->passing_percentage ? 'selected' : '' }}>Procentowy</option>
+                        </select>
+
+                        <!-- Pole punktów zdawalności -->
+                        <div id="passing-score-field" class="mb-4" style="display: {{ $quiz->passing_score ? 'block' : 'none' }};">
+                            <label class="block font-bold mb-2">Minimalna liczba punktów do zaliczenia:</label>
+                            <input type="number" id="passing-score" name="passing_score" value="{{ $quiz->passing_score }}" class="w-full p-2 border border-gray-300 rounded" min="1">
+                        </div>
+
+                        <!-- Pole procent zdawalności -->
+                        <div id="passing-percentage-field" class="mb-4" style="display: {{ $quiz->passing_percentage ? 'block' : 'none' }};">
+                            <label class="block font-bold mb-2">Minimalny procent do zaliczenia:</label>
+                            <input type="number" id="passing-percentage" name="passing_percentage" value="{{ $quiz->passing_percentage }}" class="w-full p-2 border border-gray-300 rounded" min="1" max="100">
+                        </div>
+
                         <!-- Przyciski akcji dla quizu -->
                         <div class="flex items-center mb-4">
                             <button type="button" onclick="saveQuiz()" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded mr-2">Zapisz Quiz</button>
@@ -107,6 +127,27 @@
                                     <option value="single_choice" {{ $question->type == 'single_choice' ? 'selected' : '' }}>Jednokrotnego wyboru</option>
                                     <option value="open" {{ $question->type == 'open' ? 'selected' : '' }}>Otwarte</option>
                                 </select>
+
+                                <!-- Typ przyznawania punktów dla pytania wielokrotnego wyboru (tylko dla multiple_choice) -->
+                                @if($question->type == 'multiple_choice')
+                                    <div class="question-points-type-div mb-4">
+                                        <label class="block font-bold mb-2">Typ przyznawania punktów:</label>
+                                        <select class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-type" onchange="togglePointsField(this)">
+                                            <option value="full" {{ $question->points_type == 'full' ? 'selected' : '' }}>Za wszystkie poprawne odpowiedzi</option>
+                                            <option value="partial" {{ $question->points_type == 'partial' ? 'selected' : '' }}>Za każdą poprawną odpowiedź</option>
+                                        </select>
+                                        <div class="points-value-div mt-4">
+                                            <label class="block font-bold mb-2 points-label">Punkty za wszystkie poprawne odpowiedzi:</label>
+                                            <input type="number" class="points-value-input shadow border rounded w-full py-2 px-3 text-gray-700" value="{{ $question->points }}" min="1">
+                                        </div>
+                                    </div>
+                                @endif
+
+                                <!-- Pole punktów dla pytania (pojawia się, gdy nie jest multiple_choice) -->
+                                <div class="mb-4" style="display: {{ $question->type == 'multiple_choice' ? 'none' : 'block' }};">
+                                    <label class="block font-bold mb-2">Punkty za pytanie:</label>
+                                    <input type="number" class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points" name="points" value="{{ $question->points }}" min="1">
+                                </div>
 
                                 <!-- Sekcja odpowiedzi -->
                                 <div class="answers-section mb-4">
@@ -170,8 +211,13 @@
                             @endif
                         </form>
                     </div>
+
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+        
+    </script>
 </x-app-layout>

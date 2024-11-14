@@ -1,7 +1,7 @@
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
-            {{ __('Twoje podejścia do quizu') }}
+            {{ __('Podejścia użytkowników do quizu') }}
         </h2>
     </x-slot>
 
@@ -44,40 +44,47 @@
                     <h1 class="text-2xl font-semibold text-gray-800 mb-6">Quiz: {!! $quiz->title !!}</h1>
 
                     @if($userAttempts->isEmpty())
-                        <p class="text-gray-700">Nie masz jeszcze podejść do tego quizu.</p>
+                        <p class="text-gray-700">Brak podejść do tego quizu przez użytkowników.</p>
                     @else
                         @php
                             $totalPossiblePoints = $quiz->questions->sum('points');
                         @endphp
 
-                        <!-- Iteracja przez każde podejście użytkownika -->
-                        @foreach($userAttempts as $attempt)
-                            <div class="attempt mb-6 p-4 border border-gray-300 rounded">
-                                <div class="attempt-summary cursor-pointer" onclick="toggleDetails('details-{{ $attempt->id }}')">
-                                    <h4 class="text-lg font-bold mb-2">Podejście nr {{ $attempt->attempt_number }} ({{ $attempt->created_at }})</h4>
-                                    <p class="mb-4"><strong>Punkty zdobyte:</strong> {{ $attempt->score }} / {{ $totalPossiblePoints }}</p>
-                                    @if ($quiz->passing_score || $quiz->passing_percentage)
-                                        <p class="mb-4">
-                                            <strong>Status zdawalności:</strong>
-                                            @if ($quiz->passing_score && $attempt->score >= $quiz->passing_score)
-                                                <span class="text-green-600 font-bold">Zdane</span> (próg punktowy: {{ $quiz->passing_score }})
-                                            @elseif ($quiz->passing_percentage)
-                                                @php
-                                                    $scorePercentage = ($attempt->score / $totalPossiblePoints) * 100;
-                                                @endphp
-                                                @if ($scorePercentage >= $quiz->passing_percentage)
-                                                    <span class="text-green-600 font-bold">Zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
-                                                @else
-                                                    <span class="text-red-600 font-bold">Nie zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
-                                                @endif
+                        <form action="{{ route('quiz.update_scores', ['quiz' => $quiz->id]) }}" method="POST">
+                            @csrf
+                            @method('POST')
+                            @foreach($userAttempts as $attempt)
+                                @php
+                                    // Obliczenie zdobytych punktów dla podejścia na podstawie sumy score w userAnswers
+                                    $userScore = $groupedUserAnswers->get($attempt->id, collect())->sum('score');
+                                @endphp
+
+                                <div class="attempt-summary mb-4 p-4 border border-gray-300 rounded cursor-pointer" onclick="toggleDetails('details-{{ $attempt->id }}')">
+                                    <h4 class="text-lg font-bold mb-2">
+                                        Podejście nr {{ $attempt->attempt_number }} - Użytkownik: {{ $attempt->user->name }} ({{ $attempt->created_at }})
+                                    </h4>
+                                    <p class="font-bold text-xl">Zdobyte punkty: {{ $userScore }} / {{ $totalPossiblePoints }}</p>
+                                    <p>
+                                        <strong>Status zdawalności:</strong>
+                                        @if ($quiz->passing_score && $userScore >= $quiz->passing_score)
+                                            <span class="text-green-600 font-bold">Zdane</span> (próg punktowy: {{ $quiz->passing_score }})
+                                        @elseif ($quiz->passing_percentage)
+                                            @php
+                                                $scorePercentage = ($userScore / $totalPossiblePoints) * 100;
+                                            @endphp
+                                            @if ($scorePercentage >= $quiz->passing_percentage)
+                                                <span class="text-green-600 font-bold">Zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
                                             @else
-                                                <span class="text-red-600 font-bold">Nie zdane</span>
+                                                <span class="text-red-600 font-bold">Nie zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
                                             @endif
-                                        </p>
-                                    @endif
+                                        @else
+                                            <span class="text-red-600 font-bold">Nie zdane</span>
+                                        @endif
+                                    </p>
                                 </div>
 
-                                <div id="details-{{ $attempt->id }}" class="attempt-details collapsible">
+                                <!-- Szczegóły podejścia użytkownika, ukryte domyślnie -->
+                                <div id="details-{{ $attempt->id }}" class="attempt-details mb-6 p-4 border border-gray-300 rounded collapsible">
                                     @php
                                         $userAnswers = $groupedUserAnswers->get($attempt->id, collect());
                                     @endphp
@@ -86,21 +93,18 @@
                                     @foreach($quiz->questions as $question)
                                         @php
                                             $userAnswer = $userAnswers->firstWhere('question_id', $question->id);
-                                            $questionScore = 0;
+                                            $questionScore = $userAnswer ? $userAnswer->score : 0; // Pobierz score z userAnswer lub ustaw 0
                                         @endphp
 
                                         <div class="question mb-4">
                                             <h5 class="font-semibold">{!! $question->question_text !!} (maksymalnie {{ $question->points }} pkt)</h5>
 
                                             @if($question->type === 'open')
-                                                <label class="block font-bold mb-2">Twoja odpowiedź:</label>
+                                                <label class="block font-bold mb-2">Odpowiedź użytkownika:</label>
                                                 @if($userAnswer && !empty($userAnswer->open_answer))
                                                     <!-- Zapisz odpowiedź w data-atrybucie bez kodowania encji -->
                                                     <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
                                                     @if($userAnswer->is_correct)
-                                                        @php
-                                                            $questionScore = $question->points;
-                                                        @endphp
                                                         <span class="text-green-500 font-bold">(Poprawna odpowiedź!)</span>
                                                     @else
                                                         <span class="text-red-500 font-bold">(Błędna odpowiedź)</span>
@@ -129,14 +133,17 @@
 
                                             <!-- Wyświetlenie punktów uzyskanych za pytanie -->
                                             <p class="mt-2"><strong>Punkty za to pytanie:</strong> {{ $questionScore }} / {{ $question->points }}</p>
+
+                                            <!-- Dodaj możliwość zmiany punktów -->
+                                            <label class="block mt-2"><strong>Zmień punkty:</strong></label>
+                                            <input type="number" name="scores[{{ $userAnswer ? $userAnswer->id : $question->id }}]" value="{{ $questionScore }}" min="0" max="{{ $question->points }}" class="w-20 p-2 border rounded">
                                         </div>
                                     @endforeach
-
                                 </div>
-                            </div>
-                        @endforeach
+                            @endforeach
+                            <button type="submit" class="mt-4 p-2 bg-blue-600 text-white rounded">Zaktualizuj Punkty</button>
+                        </form>
                     @endif
-
                 </div>
             </div>
         </div>
@@ -145,14 +152,16 @@
     <!-- JavaScript do inicjalizacji CodeMirror -->
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            window.toggleDetails = function (id) {
-                const details = document.getElementById(id);
-                if (details.classList.contains('expanded')) {
-                    details.classList.remove('expanded');
-                } else {
-                    details.classList.add('expanded');
-                    // Generuj pola kodu po rozwinięciu
-                    initializeCodeMirrors(details);
+            window.toggleDetails = function (detailsId) {
+                const details = document.getElementById(detailsId);
+                if (details) {
+                    if (details.classList.contains('expanded')) {
+                        details.classList.remove('expanded');
+                    } else {
+                        details.classList.add('expanded');
+                        // Generuj pola kodu po rozwinięciu
+                        initializeCodeMirrors(details);
+                    }
                 }
             }
 

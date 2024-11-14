@@ -5,10 +5,11 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\User\UserDashboardController;
 use App\Http\Controllers\QuizManageController;
-use App\Http\Controllers\GroupController; // Poprawny import GroupController
+use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Quiz\QuizSolveController;
-use App\Http\Controllers\Quiz\QuizResultsController; // Dodany kontroler do obsługi wyników quizu
+use App\Http\Controllers\Quiz\QuizResultsController;
 use App\Http\Controllers\Quiz\QuizAttemptsController;
+use App\Http\Controllers\Quiz\QuizOwnerAttemptsController;
 
 // Trasy profilu użytkownika
 Route::middleware('auth')->group(function () {
@@ -59,6 +60,16 @@ Route::middleware('auth')->group(function () {
 
     // Trasa wyników quizu
     Route::get('/quizzes/{quiz}/results', [QuizResultsController::class, 'results'])->name('quizzes.results');
+
+    // Trasa dla właściciela quizu, aby zobaczyć podejścia innych użytkowników do jego quizu
+    Route::get('/quizzes/{quiz}/owner-attempts', [QuizOwnerAttemptsController::class, 'showAttempts'])
+        ->name('quizzes.owner_attempts')
+        ->middleware(['auth']);
+
+    // Trasa dla użytkownika do przeglądania swoich własnych podejść do quizu
+    Route::get('/quizzes/{quizId}/user-attempts', [QuizAttemptsController::class, 'showAttempts'])
+        ->name('quizzes.user_attempts')
+        ->middleware(['auth']);
 });
 
 // Trasy zarządzania grupami
@@ -88,8 +99,11 @@ Route::middleware(['auth'])->group(function () {
     // Nadawanie i odbieranie roli administratora w grupie
     Route::patch('/groups/{group}/toggle-admin/{user}', [GroupController::class, 'toggleAdminRole'])->name('groups.toggleAdmin');
 
+    Route::post('/quiz/{quiz}/update-scores', [QuizOwnerAttemptsController::class, 'updateScores'])
+    ->name('quiz.update_scores')
+    ->middleware('auth');
 
-    Route::get('/quizzes/{quizId}/attempts', [QuizAttemptsController::class, 'showAttempts'])->name('quizzes.attempts');
+    Route::get('/quiz/{quiz}/owner-attempts', [QuizOwnerAttemptsController::class, 'showAttempts'])->name('quiz.owner_attempts');
 });
 
 // Trasy administratora
