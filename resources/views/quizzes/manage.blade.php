@@ -25,13 +25,15 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
 
     <!-- Dodaj TinyMCE z kluczem API -->
-    <script src="https://cdn.tiny.cloud/1/dzv7br6mbv4b8a5rvgkg45vkccpmo3sxrkntg0pu2450lkgu/tinymce/5/tinymce.min.js" referrerpolicy="origin"></script>
+    <!--<script src="https://cdn.tiny.cloud/1/dzv7br6mbv4b8a5rvgkg45vkccpmo3sxrkntg0pu2450lkgu/tinymce/5/tinymce.min.js" referrerpolicy="origin"></script> -->
+    <script src="{{ asset('js/tinymce/tinymce.min.js') }}"></script>
 
     <!-- Przekazanie zmiennych do JavaScript -->
     <script>
         window.csrfToken = "{{ csrf_token() }}";
         window.quizId = "{{ $quiz->id }}";
     </script>
+    
 
     <!-- Dodaj odwołanie do pliku manage.js -->
     <script src="{{ asset('js/manage.js') }}" defer></script>
@@ -52,8 +54,16 @@
                         <textarea id="quiz-name" name="title" class="tinymce-editor w-full mb-4 p-2 border border-gray-300 rounded">{!! $quiz->title !!}</textarea>
 
                         <!-- Pole limitu czasu -->
-                        <label class="block font-bold mb-2">Limit czasu (w minutach):</label>
-                        <input type="number" id="quiz-time-limit" name="time_limit" value="{{ $quiz->time_limit }}" class="w-full mb-4 p-2 border border-gray-300 rounded">
+                        <label class="block font-bold mb-2">Czy chcesz ograniczyć czas rozwiązywania quizu?</label>
+                        <div class="flex items-center mb-4">
+                            <input type="checkbox" id="enable-time-limit" name="has_time_limit" value="1" {{ $quiz->time_limit ? 'checked' : '' }} onchange="toggleTimeLimitField()">
+                            <label for="enable-time-limit" class="ml-2">Tak, chcę ograniczyć czas.</label>
+                        </div>
+
+                        <div id="time-limit-field" style="display: {{ $quiz->time_limit ? 'block' : 'none' }};">
+                            <label class="block font-bold mb-2">Limit czasu (w minutach):</label>
+                            <input type="number" id="quiz-time-limit" name="time_limit" value="{{ $quiz->time_limit }}" class="w-full mb-4 p-2 border border-gray-300 rounded" min="1">
+                        </div>
 
                         <!-- Pole liczby podejść (czy quiz można rozwiązywać wiele razy) -->
                         <label class="block font-bold mb-2">Czy quiz można rozwiązać wiele razy?</label>
@@ -83,7 +93,7 @@
                         <!-- Typ zdawalności (procentowy lub punktowy) -->
                         <label class="block font-bold mb-2">Typ zdawalności:</label>
                         <select id="passing-type" name="passing_type" class="shadow border rounded w-full py-2 px-3 text-gray-700 mb-4" onchange="togglePassingScoreFields()">
-                            <option value="">Brak</option>
+                            <option value="" {{ !$quiz->passing_score && !$quiz->passing_percentage ? 'selected' : '' }}>Brak</option>
                             <option value="points" {{ $quiz->passing_score ? 'selected' : '' }}>Punktowy</option>
                             <option value="percentage" {{ $quiz->passing_percentage ? 'selected' : '' }}>Procentowy</option>
                         </select>
@@ -129,24 +139,24 @@
                                 </select>
 
                                 <!-- Typ przyznawania punktów dla pytania wielokrotnego wyboru (tylko dla multiple_choice) -->
-                                @if($question->type == 'multiple_choice')
-                                    <div class="question-points-type-div mb-4">
-                                        <label class="block font-bold mb-2">Typ przyznawania punktów:</label>
-                                        <select class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-type" onchange="togglePointsField(this)">
-                                            <option value="full" {{ $question->points_type == 'full' ? 'selected' : '' }}>Za wszystkie poprawne odpowiedzi</option>
-                                            <option value="partial" {{ $question->points_type == 'partial' ? 'selected' : '' }}>Za każdą poprawną odpowiedź</option>
-                                        </select>
-                                        <div class="points-value-div mt-4">
-                                            <label class="block font-bold mb-2 points-label">Punkty za wszystkie poprawne odpowiedzi:</label>
-                                            <input type="number" class="points-value-input shadow border rounded w-full py-2 px-3 text-gray-700" value="{{ $question->points }}" min="1">
-                                        </div>
+                                <div class="question-points-type-div mb-4" style="display: {{ $question->type == 'multiple_choice' ? 'block' : 'none' }};">
+                                    <label class="block font-bold mb-2">Typ przyznawania punktów:</label>
+                                    <select class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-type" onchange="togglePointsField(this)">
+                                        <option value="full" {{ $question->points_type == 'full' ? 'selected' : '' }}>Za wszystkie poprawne odpowiedzi</option>
+                                        <option value="partial" {{ $question->points_type == 'partial' ? 'selected' : '' }}>Za każdą poprawną odpowiedź</option>
+                                    </select>
+                                    <div class="points-value-div mt-4">
+                                        <label class="block font-bold mb-2 points-label">
+                                            {{ $question->points_type == 'partial' ? 'Punkty za każdą poprawną odpowiedź:' : 'Punkty za wszystkie poprawne odpowiedzi:' }}
+                                        </label>
+                                        <input type="number" class="points-value-input shadow border rounded w-full py-2 px-3 text-gray-700" value="{{ $question->points }}" min="1">
                                     </div>
-                                @endif
+                                </div>
 
                                 <!-- Pole punktów dla pytania (pojawia się, gdy nie jest multiple_choice) -->
-                                <div class="mb-4" style="display: {{ $question->type == 'multiple_choice' ? 'none' : 'block' }};">
+                                <div class="question-points-div mb-4" style="display: {{ $question->type == 'multiple_choice' ? 'none' : 'block' }};">
                                     <label class="block font-bold mb-2">Punkty za pytanie:</label>
-                                    <input type="number" class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points" name="points" value="{{ $question->points }}" min="1">
+                                    <input type="number" class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-input" name="points" value="{{ $question->points }}" min="1">
                                 </div>
 
                                 <!-- Sekcja odpowiedzi -->
@@ -216,8 +226,4 @@
             </div>
         </div>
     </div>
-
-    <script>
-        
-    </script>
 </x-app-layout>

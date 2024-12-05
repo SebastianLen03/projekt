@@ -46,97 +46,166 @@
                     @if($userAttempts->isEmpty())
                         <p class="text-gray-700">Nie masz jeszcze podejść do tego quizu.</p>
                     @else
-                        @php
-                            $totalPossiblePoints = $quiz->questions->sum('points');
-                        @endphp
+                        @foreach($userAttempts as $versionId => $attempts)
+                            @php
+                                $quizVersion = $attempts->first()->quizVersion;
+                                $questions = $quizVersion->versionedQuestions()->with('answers')->get();
+                            @endphp
 
-                        <!-- Iteracja przez każde podejście użytkownika -->
-                        @foreach($userAttempts as $attempt)
-                            <div class="attempt mb-6 p-4 border border-gray-300 rounded">
-                                <div class="attempt-summary cursor-pointer" onclick="toggleDetails('details-{{ $attempt->id }}')">
-                                    <h4 class="text-lg font-bold mb-2">Podejście nr {{ $attempt->attempt_number }} ({{ $attempt->created_at }})</h4>
-                                    <p class="mb-4"><strong>Punkty zdobyte:</strong> {{ $attempt->score }} / {{ $totalPossiblePoints }}</p>
-                                    @if ($quiz->passing_score || $quiz->passing_percentage)
-                                        <p class="mb-4">
-                                            <strong>Status zdawalności:</strong>
-                                            @if ($quiz->passing_score && $attempt->score >= $quiz->passing_score)
-                                                <span class="text-green-600 font-bold">Zdane</span> (próg punktowy: {{ $quiz->passing_score }})
-                                            @elseif ($quiz->passing_percentage)
-                                                @php
-                                                    $scorePercentage = ($attempt->score / $totalPossiblePoints) * 100;
-                                                @endphp
-                                                @if ($scorePercentage >= $quiz->passing_percentage)
-                                                    <span class="text-green-600 font-bold">Zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
-                                                @else
-                                                    <span class="text-red-600 font-bold">Nie zdane</span> (próg procentowy: {{ $quiz->passing_percentage }}%)
+                            <h2 class="text-xl font-semibold mb-4">Wersja Quizu: {{ $quizVersion->version_number }}</h2>
+
+                            @foreach($attempts as $attempt)
+                                @php
+                                    $userAnswers = $groupedUserAnswers->get($attempt->id, collect())->keyBy('versioned_question_id');
+
+                                    // Obliczenie całkowitej możliwej liczby punktów dla tego podejścia
+                                    $totalPossiblePoints = 0;
+                                    foreach ($questions as $question) {
+                                        if ($question->type === 'multiple_choice' && $question->points_type === 'partial') {
+                                            $correctAnswersCount = $question->answers->where('is_correct', true)->count();
+                                            $questionTotalPoints = $correctAnswersCount * $question->points;
+                                        } else {
+                                            $questionTotalPoints = $question->points;
+                                        }
+                                        $totalPossiblePoints += $questionTotalPoints;
+                                    }
+
+                                    // Obliczenie czasu trwania podejścia
+                                    if ($attempt->started_at && $attempt->ended_at) {
+                                        // Oblicz różnicę w sekundach używając znaczników czasu
+                                        $durationInSeconds = $attempt->ended_at->timestamp - $attempt->started_at->timestamp;
+
+                                        // Jeśli różnica jest ujemna, ustaw na 0
+                                        if ($durationInSeconds < 0) {
+                                            $durationInSeconds = 0;
+                                        }
+
+                                        // Sformatuj czas trwania
+                                        $durationFormatted = gmdate('H:i:s', $durationInSeconds);
+                                    } else {
+                                        $durationFormatted = 'Brak danych';
+                                    }
+
+                                    // Obliczenie procentu zdobytych punktów
+                                    $scorePercentage = ($totalPossiblePoints > 0) ? ($attempt->score / $totalPossiblePoints) * 100 : 0;
+                                @endphp
+
+                                <div class="attempt mb-6 p-4 border border-gray-300 rounded">
+                                    <div class="attempt-summary cursor-pointer" onclick="toggleDetails('details-{{ $attempt->id }}')">
+                                        <h4 class="text-lg font-bold mb-2">Podejście nr {{ $attempt->attempt_number }} ({{ $attempt->created_at }})</h4>
+                                        <p class="mb-2"><strong>Punkty zdobyte:</strong> {{ $attempt->score }} / {{ $totalPossiblePoints }}</p>
+                                        <p class="mb-2"><strong>Procent zdobytych punktów:</strong> {{ number_format($scorePercentage, 2) }}%</p>
+                                        @if($quizVersion->has_passing_criteria)
+                                            <p class="mb-2"><strong>Wymagane do zdania:</strong>
+                                                @if($quizVersion->passing_score)
+                                                    {{ $quizVersion->passing_score }} pkt
+                                                @elseif($quizVersion->passing_percentage)
+                                                    {{ $quizVersion->passing_percentage }}%
                                                 @endif
-                                            @else
-                                                <span class="text-red-600 font-bold">Nie zdane</span>
-                                            @endif
-                                        </p>
-                                    @endif
-                                </div>
+                                            </p>
+                                        @endif
+                                        <p><strong>Czas trwania podejścia:</strong> {{ $durationFormatted }}</p>
+                                        @if ($quizVersion->has_passing_criteria)
+                                            <p class="mb-4">
+                                                <strong>Status zdawalności:</strong>
+                                                @if ($quizVersion->passing_score && $attempt->score >= $quizVersion->passing_score)
+                                                    <span class="text-green-600 font-bold">Zdane</span> (próg punktowy: {{ $quizVersion->passing_score }})
+                                                @elseif ($quizVersion->passing_percentage && $scorePercentage >= $quizVersion->passing_percentage)
+                                                    <span class="text-green-600 font-bold">Zdane</span> (próg procentowy: {{ $quizVersion->passing_percentage }}%)
+                                                @else
+                                                    <span class="text-red-600 font-bold">Nie zdane</span>
+                                                @endif
+                                            </p>
+                                        @else
+                                            <p class="mb-4"><strong>Status zdawalności:</strong> Brak kryteriów zdawalności</p>
+                                        @endif
+                                    </div>
 
-                                <div id="details-{{ $attempt->id }}" class="attempt-details collapsible">
-                                    @php
-                                        $userAnswers = $groupedUserAnswers->get($attempt->id, collect());
-                                    @endphp
+                                    <div id="details-{{ $attempt->id }}" class="attempt-details collapsible">
+                                        <!-- Iteracja przez każde pytanie w wersji quizu -->
+                                        @foreach($questions as $question)
+                                            @php
+                                                $userAnswer = $userAnswers->get($question->id);
+                                                $questionScore = $userAnswer ? $userAnswer->score : 0;
 
-                                    <!-- Iteracja przez każde pytanie w quizie -->
-                                    @foreach($quiz->questions as $question)
-                                        @php
-                                            $userAnswer = $userAnswers->firstWhere('question_id', $question->id);
-                                            $questionScore = 0;
-                                        @endphp
+                                                // Obliczenie maksymalnej liczby punktów za pytanie
+                                                if ($question->type === 'multiple_choice' && $question->points_type === 'partial') {
+                                                    $correctAnswersCount = $question->answers->where('is_correct', true)->count();
+                                                    $totalQuestionPoints = $correctAnswersCount * $question->points;
+                                                } else {
+                                                    $totalQuestionPoints = $question->points;
+                                                }
+                                            @endphp
 
-                                        <div class="question mb-4">
-                                            <h5 class="font-semibold">{!! $question->question_text !!} (maksymalnie {{ $question->points }} pkt)</h5>
+                                            <div class="question mb-4">
+                                                <h5 class="font-semibold">{!! $question->question_text !!} ({{ $questionScore }} / {{ $totalQuestionPoints }} pkt)</h5>
 
-                                            @if($question->type === 'open')
-                                                <label class="block font-bold mb-2">Twoja odpowiedź:</label>
-                                                @if($userAnswer && !empty($userAnswer->open_answer))
-                                                    <!-- Zapisz odpowiedź w data-atrybucie bez kodowania encji -->
-                                                    <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
-                                                    @if($userAnswer->is_correct)
-                                                        @php
-                                                            $questionScore = $question->points;
-                                                        @endphp
-                                                        <span class="text-green-500 font-bold">(Poprawna odpowiedź!)</span>
+                                                @if($question->type === 'open')
+                                                    <label class="block font-bold mb-2">Twoja odpowiedź:</label>
+                                                    @if($userAnswer && !empty($userAnswer->open_answer))
+                                                        <!-- Zapisz odpowiedź w data-atrybucie bez kodowania encji -->
+                                                        <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
+                                                        @if($userAnswer->is_correct)
+                                                            <span class="text-green-500 font-bold">(Poprawna odpowiedź!)</span>
+                                                        @else
+                                                            <span class="text-red-500 font-bold">(Błędna odpowiedź)</span>
+                                                        @endif
                                                     @else
-                                                        <span class="text-red-500 font-bold">(Błędna odpowiedź)</span>
+                                                        <p>Brak odpowiedzi</p>
                                                     @endif
-                                                @else
-                                                    <p>Brak odpowiedzi</p>
-                                                @endif
-                                            @else
-                                                <p>Odpowiedzi:</p>
-                                                <!-- Iteracja przez wszystkie możliwe odpowiedzi -->
-                                                @foreach($question->answers as $answer)
+                                                @elseif($question->type === 'multiple_choice')
+                                                    <p>Odpowiedzi:</p>
                                                     @php
-                                                        $isSelected = $userAnswer && $userAnswer->answer_id == $answer->id;
+                                                        $selectedAnswerIds = $userAnswer ? explode(',', $userAnswer->selected_answers) : [];
                                                     @endphp
-                                                    <div class="p-2 mb-1 {{ $isSelected ? 'selected-answer' : '' }} {{ !$answer->is_correct && $isSelected ? 'incorrect-answer' : '' }}">
-                                                        {!! $answer->text !!}
-                                                        @if ($isSelected)
-                                                            <span class="font-bold"> (Wybrano)</span>
-                                                        @endif
-                                                        @if ($answer->is_correct)
-                                                            <span class="font-bold text-green-500"> (Poprawna)</span>
-                                                        @endif
-                                                    </div>
-                                                @endforeach
-                                            @endif
+                                                    <!-- Iteracja przez wszystkie możliwe odpowiedzi -->
+                                                    @foreach($question->answers as $answer)
+                                                        @php
+                                                            $isSelected = in_array($answer->id, $selectedAnswerIds);
+                                                        @endphp
+                                                        <div class="p-2 mb-1 {{ $isSelected ? 'selected-answer' : '' }} {{ !$answer->is_correct && $isSelected ? 'incorrect-answer' : '' }}">
+                                                            {!! $answer->text !!}
+                                                            @if ($isSelected)
+                                                                <span class="font-bold"> (Wybrano)</span>
+                                                            @endif
+                                                            @if ($answer->is_correct)
+                                                                <span class="font-bold text-green-500"> (Poprawna)</span>
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
+                                                @else
+                                                    <!-- Pytanie jednokrotnego wyboru -->
+                                                    <p>Odpowiedzi:</p>
+                                                    @php
+                                                        $selectedAnswerId = $userAnswer ? $userAnswer->versioned_answer_id : null;
+                                                    @endphp
+                                                    <!-- Iteracja przez wszystkie możliwe odpowiedzi -->
+                                                    @foreach($question->answers as $answer)
+                                                        @php
+                                                            $isSelected = $selectedAnswerId == $answer->id;
+                                                        @endphp
+                                                        <div class="p-2 mb-1 {{ $isSelected ? 'selected-answer' : '' }} {{ !$answer->is_correct && $isSelected ? 'incorrect-answer' : '' }}">
+                                                            {!! $answer->text !!}
+                                                            @if ($isSelected)
+                                                                <span class="font-bold"> (Wybrano)</span>
+                                                            @endif
+                                                            @if ($answer->is_correct)
+                                                                <span class="font-bold text-green-500"> (Poprawna)</span>
+                                                            @endif
+                                                        </div>
+                                                    @endforeach
+                                                @endif
 
-                                            <!-- Wyświetlenie punktów uzyskanych za pytanie -->
-                                            <p class="mt-2"><strong>Punkty za to pytanie:</strong> {{ $questionScore }} / {{ $question->points }}</p>
-                                        </div>
-                                    @endforeach
+                                                <!-- Wyświetlenie punktów uzyskanych za pytanie -->
+                                                <p class="mt-2"><strong>Punkty za to pytanie:</strong> {{ $questionScore }} / {{ $totalQuestionPoints }}</p>
+                                            </div>
+                                        @endforeach
 
+                                    </div>
                                 </div>
-                            </div>
+                            @endforeach
                         @endforeach
                     @endif
-
                 </div>
             </div>
         </div>

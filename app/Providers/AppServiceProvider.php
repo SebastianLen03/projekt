@@ -3,8 +3,9 @@
 namespace App\Providers;
 
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\URL; // Import dla HTTPS
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\DB;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,5 +29,7 @@ class AppServiceProvider extends ServiceProvider
 
         // Opcjonalne ustawienia dla MySQL (długość indeksów)
         Schema::defaultStringLength(191);
+
+        DB::statement("SET time_zone='+00:00'");
     }
 }

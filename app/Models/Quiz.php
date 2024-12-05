@@ -16,7 +16,6 @@ class Quiz extends Model
     // Kolumny, które mogą być masowo przypisywane
     protected $fillable = [
         'title',
-        'time_limit',
         'user_id',
         'is_public',
         'multiple_attempts',
@@ -59,4 +58,8 @@ class Quiz extends Model
         return $this->hasMany(UserAttempt::class);
     }
 
+    public function versions()
+    {
+        return $this->hasMany(QuizVersion::class);
+    }
 }

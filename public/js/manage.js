@@ -1,13 +1,21 @@
-// public/js/manage.js
+''// public/js/manage.js
 
 // Inicjalizacja edytorów po załadowaniu DOM
 document.addEventListener('DOMContentLoaded', function () {
     // Inicjalizacja TinyMCE dla wszystkich pól z klasą .tinymce-editor
     tinymce.init({
         selector: '.tinymce-editor',
-        plugins: 'advlist autolink link image lists charmap print preview',
-        toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat',
         menubar: false,
+        plugins: 'lists link image table code',
+        toolbar: 'undo redo | bold italic underline | bullist numlist | link table | code',
+        branding: false,
+        license_key: 'gpl',
+        height: 200,
+        setup: function (editor) {
+            editor.on('change', function () {
+                editor.save();
+            });
+        }
     });
 
     // Inicjalizacja CodeMirror dla wszystkich pól z klasą .code-input
@@ -41,28 +49,30 @@ function initializeEditors() {
         plugins: 'advlist autolink link image lists charmap print preview',
         toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat',
         menubar: false,
+        forced_root_block: '',
     });
 
     // Inicjalizacja CodeMirror dla wszystkich pól z klasą .code-input
     document.querySelectorAll('.code-input').forEach(function(textarea) {
-        const editor = CodeMirror.fromTextArea(textarea, {
-            lineNumbers: true,
-            mode: {
-                name: 'php',
-                startOpen: true,
-            },
-            theme: 'monokai',
-            tabSize: 2,
-        });
-        textarea.CodeMirrorInstance = editor; // Przechowaj instancję CodeMirror
+        if (!textarea.CodeMirrorInstance) {
+            const editor = CodeMirror.fromTextArea(textarea, {
+                lineNumbers: true,
+                mode: {
+                    name: 'php',
+                    startOpen: true,
+                },
+                theme: 'monokai',
+                tabSize: 2,
+            });
+            textarea.CodeMirrorInstance = editor; // Przechowaj instancję CodeMirror
+        }
     });
 }
 
 
 function getTinyMCEContent(element) {
-    const editor = tinymce.editors.find(ed => ed.targetElm === element);
-    if (editor) {
-        return editor.getContent();
+    if (tinymce.get(element.id)) {
+        return tinymce.get(element.id).getContent();
     } else {
         return element.value;
     }
@@ -70,7 +80,6 @@ function getTinyMCEContent(element) {
 
 async function saveQuiz() {
     const quizName = getTinyMCEContent(document.getElementById('quiz-name')).trim();
-    const timeLimit = document.getElementById('quiz-time-limit').value;
     const isPublic = document.getElementById('public_quiz').checked;
     const multipleAttempts = document.getElementById('quiz-multiple-attempts').checked;
 
@@ -79,15 +88,51 @@ async function saveQuiz() {
         return;
     }
 
+    // Nowe pola związane z kryteriami zdawalności
+    const passingType = document.getElementById('passing-type').value;
+    const passingScore = document.getElementById('passing-score').value;
+    const passingPercentage = document.getElementById('passing-percentage').value;
+
+    // Ustal, czy ustawiono kryteria zdawalności
+    let hasPassingCriteria = false;
+    if (passingType === 'points' || passingType === 'percentage') {
+        hasPassingCriteria = true;
+    }
+
+    // Nowe pola związane z limitem czasu
+    const hasTimeLimit = document.getElementById('enable-time-limit').checked;
+    const timeLimit = document.getElementById('quiz-time-limit').value;
+
     try {
         let data = {
             title: quizName,
-            time_limit: timeLimit,
             is_public: isPublic,
             multiple_attempts: multipleAttempts,
+            has_passing_criteria: hasPassingCriteria,
+            has_time_limit: hasTimeLimit,
             questions: []
         };
 
+        // Dodajemy pola związane z kryteriami zdawalności
+        if (passingType === 'points') {
+            data.passing_score = parseInt(passingScore);
+            data.passing_percentage = null;
+        } else if (passingType === 'percentage') {
+            data.passing_percentage = parseInt(passingPercentage);
+            data.passing_score = null;
+        } else {
+            data.passing_score = null;
+            data.passing_percentage = null;
+        }
+
+        // Dodajemy pole limitu czasu
+        if (hasTimeLimit) {
+            data.time_limit = parseInt(timeLimit);
+        } else {
+            data.time_limit = null;
+        }
+
+        // Jeśli quiz nie jest publiczny, dodajemy wybrane grupy
         if (!isPublic) {
             const selectedGroups = [];
             document.querySelectorAll('input[name="groups[]"]:checked').forEach((checkbox) => {
@@ -101,11 +146,28 @@ async function saveQuiz() {
             const questionTextElement = questionDiv.querySelector('.question-text');
             const questionText = getTinyMCEContent(questionTextElement).trim();
             const questionType = questionDiv.querySelector('.question-type').value;
-            const questionPoints = parseInt(questionDiv.querySelector('.question-points').value);
+            let questionPoints;
+            const pointsInput = questionDiv.querySelector('.question-points-input');
+            const pointsValueInput = questionDiv.querySelector('.points-value-input');
+
+            if (pointsInput && pointsInput.closest('.question-points-div').style.display !== 'none') {
+                questionPoints = parseInt(pointsInput.value);
+            } else if (pointsValueInput && pointsValueInput.closest('.question-points-type-div').style.display !== 'none') {
+                questionPoints = parseInt(pointsValueInput.value);
+            } else {
+                alert('Brak pola punktów.');
+                return;
+            }
+
             const questionId = questionDiv.dataset.questionId || null;
 
             if (!questionText) {
                 alert('Treść pytania nie może być pusta.');
+                return;
+            }
+
+            if (!questionPoints || questionPoints < 1) {
+                alert('Punkty za pytanie muszą być większe niż 0.');
                 return;
             }
 
@@ -134,11 +196,20 @@ async function saveQuiz() {
                     return;
                 }
                 const answers = [];
+                let hasCorrectAnswer = false;
                 for (const answerDiv of answerInputs) {
                     const answerTextElement = answerDiv.querySelector('.answer-text');
                     const text = getTinyMCEContent(answerTextElement).trim();
                     const isCorrect = answerDiv.querySelector('.answer-correct').checked;
                     const answerId = answerDiv.dataset.answerId || null;
+
+                    if (!text) {
+                        alert('Pola odpowiedzi nie mogą być puste.');
+                        return;
+                    }
+                    if (isCorrect) {
+                        hasCorrectAnswer = true;
+                    }
 
                     let answerData = {
                         text: text,
@@ -148,6 +219,10 @@ async function saveQuiz() {
                         answerData.id = answerId;
                     }
                     answers.push(answerData);
+                }
+                if (!hasCorrectAnswer) {
+                    alert('Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.');
+                    return;
                 }
                 questionData.answers = answers;
             }
@@ -183,6 +258,25 @@ async function saveQuiz() {
     }
 }
 
+// Funkcja do przełączania pola limitu czasu
+function toggleTimeLimitField() {
+    const enableTimeLimit = document.getElementById('enable-time-limit').checked;
+    const timeLimitField = document.getElementById('time-limit-field');
+
+    if (enableTimeLimit) {
+        timeLimitField.style.display = 'block';
+    } else {
+        timeLimitField.style.display = 'none';
+    }
+}
+
+
+document.addEventListener('DOMContentLoaded', function () {
+    toggleTimeLimitField();
+    togglePassingScoreFields();
+});
+
+
 function handlePublicCheckbox(checkbox) {
     const groupCheckboxes = document.querySelectorAll('#group-checkboxes input[name="groups[]"]');
     groupCheckboxes.forEach(cb => {
@@ -199,7 +293,17 @@ async function saveQuestion(button) {
     const questionTextElement = questionDiv.querySelector('.question-text');
     const questionText = getTinyMCEContent(questionTextElement).trim();
     const questionType = questionDiv.querySelector('.question-type').value;
-    const points = parseInt(questionDiv.querySelector('.question-points').value);
+    let pointsInput = questionDiv.querySelector('.question-points-input');
+    let pointsValueInput = questionDiv.querySelector('.points-value-input');
+    let points;
+    if (pointsInput && pointsInput.closest('.question-points-div').style.display !== 'none') {
+        points = parseInt(pointsInput.value);
+    } else if (pointsValueInput && pointsValueInput.closest('.question-points-type-div').style.display !== 'none') {
+        points = parseInt(pointsValueInput.value);
+    } else {
+        alert('Brak pola punktów.');
+        return;
+    }
 
     if (!questionText) {
         alert('Treść pytania nie może być pusta.');
@@ -223,6 +327,7 @@ async function saveQuestion(button) {
     }
 
     if (questionId) {
+        // Update existing question
     } else {
         data.quiz_id = quizId;
     }
@@ -407,12 +512,13 @@ function addQuestion() {
         </div>
 
         <!-- Pole punktów dla pytania (widoczne tylko jeśli typ to nie multiple_choice) -->
-        <div class="question-points mb-4" style="display: none;">
+        <div class="question-points-div mb-4" style="display: none;">
             <label class="block font-bold mb-2">Punkty za pytanie:</label>
-            <input type="number" class="shadow border rounded w-full py-2 px-3 text-gray-700" name="points" value="1" min="1">
+            <input type="number" class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-input" name="points" value="1" min="1">
         </div>
 
         <div class="answers-section mb-4">
+            <!-- Odpowiedzi lub pole kodu zostaną dodane tutaj -->
         </div>
         
         <div class="flex justify-between mt-4">
@@ -423,111 +529,81 @@ function addQuestion() {
     
     questionsSection.appendChild(newQuestionDiv);
     
-    // Inicjalizacja TinyMCE dla dynamicznie dodanego pytania
+    // Initialize TinyMCE for the new question
     tinymce.init({
         selector: `#${newQuestionId}`,
         plugins: 'advlist autolink link image lists charmap print preview',
         toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat',
         menubar: false,
+        forced_root_block: '',
     });
 
-    const editor = CodeMirror.fromTextArea(codeTextarea, {
-        lineNumbers: true,
-        mode: {
-            name: 'php',
-            startOpen: true,
-        },
-        theme: 'monokai',
-        tabSize: 2,
-    });
-
-    // Wywołanie toggleAnswerSection, aby ustawić odpowiednie pola na podstawie domyślnego typu pytania
+    // Call toggleAnswerSection to set up the correct fields based on the default question type
     const selectElement = newQuestionDiv.querySelector('.question-type');
     toggleAnswerSection(selectElement);
 }
+
 
 function toggleAnswerSection(selectElement) {
     const questionDiv = selectElement.closest('.question');
     const questionType = selectElement.value;
     const answersSection = questionDiv.querySelector('.answers-section');
+    const pointsTypeDiv = questionDiv.querySelector('.question-points-type-div');
+    const pointsInputDiv = questionDiv.querySelector('.question-points-div'); 
 
-    const existingCodeTextarea = answersSection.querySelector('.code-input');
-    if (existingCodeTextarea && existingCodeTextarea.CodeMirrorInstance) {
-        existingCodeTextarea.CodeMirrorInstance.toTextArea();
-    }
+    // Usunięcie poprzedniej konfiguracji tylko jeśli typ pytania się zmienił
+    if (questionDiv.dataset.previousQuestionType !== questionType) {
+        // Reset odpowiedzi
+        answersSection.innerHTML = '';
 
-    // Reset odpowiedzi
-    answersSection.innerHTML = '';
-
-    // Dla pytania otwartego - dodaj pole na oczekiwany kod
-    if (questionType === 'open') {
-        answersSection.innerHTML = `
-            <label class="block font-bold mb-2">Oczekiwany kod:</label>
-            <textarea class="code-input w-full mb-4 p-2 border border-gray-300 rounded"></textarea>
-        `;
-
-        const codeTextarea = answersSection.querySelector('.code-input');
-        const editor = CodeMirror.fromTextArea(codeTextarea, {
-            lineNumbers: true,
-            mode: {
-                name: 'php',
-                startOpen: true,
-            },
-            theme: 'monokai',
-            tabSize: 2,
-        });
-        codeTextarea.CodeMirrorInstance = editor;
-
-        // Ukryj pole z liczbą punktów, gdy pytanie jest otwarte
-        questionDiv.querySelector('.question-points').closest('.mb-4').style.display = 'block';
-        const pointsTypeDiv = questionDiv.querySelector('.question-points-type-div');
-        if (pointsTypeDiv) pointsTypeDiv.remove();
-
-    } else if (questionType === 'multiple_choice') {
-        // Dla pytań wielokrotnego wyboru - dodaj przycisk dodawania odpowiedzi oraz wybór sposobu punktacji
-        answersSection.innerHTML = `
-            <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
-        `;
-
-        // Ukryj pole z liczbą punktów, ponieważ mamy szczegółową kontrolę nad punktowaniem
-        questionDiv.querySelector('.question-points').closest('.mb-4').style.display = 'none';
-
-        // Dodaj wybór typu punktowania dla pytania wielokrotnego wyboru
-        if (!questionDiv.querySelector('.question-points-type-div')) {
-            const pointsTypeDiv = document.createElement('div');
-            pointsTypeDiv.className = 'question-points-type-div mb-4';
-            pointsTypeDiv.innerHTML = `
-                <label class="block font-bold mb-2">Typ przyznawania punktów:</label>
-                <select class="shadow border rounded w-full py-2 px-3 text-gray-700 question-points-type" onchange="togglePointsField(this)">
-                    <option value="full">Za wszystkie poprawne odpowiedzi</option>
-                    <option value="partial">Za każdą poprawną odpowiedź</option>
-                </select>
-                <div class="points-value-div mt-4">
-                    <label class="block font-bold mb-2 points-label">Punkty za wszystkie poprawne odpowiedzi:</label>
-                    <input type="number" class="points-value-input shadow border rounded w-full py-2 px-3 text-gray-700" value="1" min="1">
-                </div>
-            `;
-            questionDiv.insertBefore(pointsTypeDiv, answersSection);
+        // Usunięcie instancji CodeMirror, jeśli istnieje
+        const existingCodeTextarea = answersSection.querySelector('.code-input');
+        if (existingCodeTextarea && existingCodeTextarea.CodeMirrorInstance) {
+            existingCodeTextarea.CodeMirrorInstance.toTextArea();
         }
 
-    } else {
-        // Dla pytań jednokrotnego wyboru - dodaj przycisk dodawania odpowiedzi
-        answersSection.innerHTML = `
-            <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
-        `;
+        if (questionType === 'open') {
+            // Dodaj pole odpowiedzi tylko jeśli nie istnieje
+            answersSection.innerHTML = `
+                <label class="block font-bold mb-2">Oczekiwany kod:</label>
+                <textarea class="code-input w-full mb-4 p-2 border border-gray-300 rounded"></textarea>
+            `;
 
-        // Pokaż pole z liczbą punktów dla pytań jednokrotnego wyboru
-        questionDiv.querySelector('.question-points').closest('.mb-4').style.display = 'block';
+            const codeTextarea = answersSection.querySelector('.code-input');
+            const editor = CodeMirror.fromTextArea(codeTextarea, {
+                lineNumbers: true,
+                mode: {
+                    name: 'php',
+                    startOpen: true,
+                },
+                theme: 'monokai',
+                tabSize: 2,
+            });
+            codeTextarea.CodeMirrorInstance = editor;
+        } else if (questionType === 'multiple_choice' || questionType === 'single_choice') {
+            answersSection.innerHTML = `
+                <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
+            `;
+        }
 
-        // Usuń wybór typu punktowania, jeśli istnieje
-        const pointsTypeDiv = questionDiv.querySelector('.question-points-type-div');
-        if (pointsTypeDiv) pointsTypeDiv.remove();
+        // Zapamiętaj bieżący typ pytania
+        questionDiv.dataset.previousQuestionType = questionType;
     }
 
-    // Resetuj zaznaczenia poprawnych odpowiedzi i zaktualizuj nazwy radiobuttonów
+    // Pokaż/ukryj odpowiednie pola punktów
+    if (questionType === 'multiple_choice') {
+        if (pointsTypeDiv) pointsTypeDiv.style.display = 'block';
+        if (pointsInputDiv) pointsInputDiv.style.display = 'none';
+    } else {
+        if (pointsInputDiv) pointsInputDiv.style.display = 'block';
+        if (pointsTypeDiv) pointsTypeDiv.style.display = 'none';
+    }
+
+    // Aktualizacja nazwy dla radio buttonów
     resetAnswerSelections(questionDiv);
     updateRadioNames();
 }
+
 
 function addAnswer(button) {
     const answersSection = button.parentElement;
@@ -551,6 +627,7 @@ function addAnswer(button) {
         plugins: 'advlist autolink link image lists charmap print preview',
         toolbar: 'undo redo | formatselect | bold italic | alignleft aligncenter alignright alignjustify | bullist numlist outdent indent | removeformat',
         menubar: false,
+        forced_root_block: '',
     });
 
     updateRadioNames();
@@ -658,87 +735,22 @@ async function toggleQuizStatus() {
         console.error('Error:', error);
         alert('Wystąpił błąd podczas zmiany statusu quizu: ' + error.message);
     }
+}
 
-    function toggleAnswerSection(selectElement) {
-        const questionDiv = selectElement.closest('.question');
-        const questionType = selectElement.value;
-        const answersSection = questionDiv.querySelector('.answers-section');
-        const pointsTypeDiv = questionDiv.querySelector('.question-points-type-div');
-        const pointsInputDiv = questionDiv.querySelector('.question-points');
-    
-        // Usunięcie poprzedniej konfiguracji, jeśli istnieje
-        const existingCodeTextarea = answersSection.querySelector('.code-input');
-        if (existingCodeTextarea && existingCodeTextarea.CodeMirrorInstance) {
-            existingCodeTextarea.CodeMirrorInstance.toTextArea();
-        }
-    
-        // Reset odpowiedzi
-        answersSection.innerHTML = '';
-    
-        // Dla pytania otwartego - dodaj pole na oczekiwany kod
-        if (questionType === 'open') {
-            answersSection.innerHTML = `
-                <label class="block font-bold mb-2">Oczekiwany kod:</label>
-                <textarea class="code-input w-full mb-4 p-2 border border-gray-300 rounded"></textarea>
-            `;
-    
-            const codeTextarea = answersSection.querySelector('.code-input');
-            const editor = CodeMirror.fromTextArea(codeTextarea, {
-                lineNumbers: true,
-                mode: {
-                    name: 'php',
-                    startOpen: true,
-                },
-                theme: 'monokai',
-                tabSize: 2,
-            });
-            codeTextarea.CodeMirrorInstance = editor;
-    
-            // Ukryj pole z liczbą punktów, gdy pytanie jest otwarte
-            pointsInputDiv.style.display = 'block';
-            pointsTypeDiv.style.display = 'none';
-    
-        } else if (questionType === 'multiple_choice') {
-            // Dla pytań wielokrotnego wyboru - dodaj przycisk dodawania odpowiedzi oraz wybór sposobu punktacji
-            answersSection.innerHTML = `
-                <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
-            `;
-    
-            // Pokaż wybór typu punktowania dla pytania wielokrotnego wyboru
-            pointsTypeDiv.style.display = 'block';
-            pointsInputDiv.style.display = 'none';
-    
-        } else {
-            // Dla pytań jednokrotnego wyboru - dodaj przycisk dodawania odpowiedzi
-            answersSection.innerHTML = `
-                <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
-            `;
-    
-            // Pokaż pole z liczbą punktów dla pytań jednokrotnego wyboru
-            pointsInputDiv.style.display = 'block';
-            pointsTypeDiv.style.display = 'none';
-        }
-    
-        // Resetuj zaznaczenia poprawnych odpowiedzi i zaktualizuj nazwy radiobuttonów
-        resetAnswerSelections(questionDiv);
-        updateRadioNames();
-    }
+// Funkcja przełącza wyświetlanie pól do ustawienia punktowego lub procentowego progu zdawalności
+function togglePassingScoreFields() {
+    const passingType = document.getElementById('passing-type').value;
+    document.getElementById('passing-score-field').style.display = (passingType === 'points') ? 'block' : 'none';
+    document.getElementById('passing-percentage-field').style.display = (passingType === 'percentage') ? 'block' : 'none';
+}
 
-    // Funkcja przełącza wyświetlanie pól do ustawienia punktowego lub procentowego progu zdawalności
-    function togglePassingScoreFields() {
-        const passingType = document.getElementById('passing-type').value;
-        document.getElementById('passing-score-field').style.display = (passingType === 'points') ? 'block' : 'none';
-        document.getElementById('passing-percentage-field').style.display = (passingType === 'percentage') ? 'block' : 'none';
-    }
-
-    // Funkcja dynamicznie zmieniająca wyświetlanie pól dla punktowania
-    function togglePointsField(selectElement) {
-        const pointsType = selectElement.value;
-        const pointsValueDiv = selectElement.closest('.question-points-type-div').querySelector('.points-value-div');
-        if (pointsType === 'full') {
-            pointsValueDiv.querySelector('.points-label').innerText = 'Punkty za wszystkie poprawne odpowiedzi:';
-        } else if (pointsType === 'partial') {
-            pointsValueDiv.querySelector('.points-label').innerText = 'Punkty za każdą poprawną odpowiedź:';
-        }
+// Funkcja dynamicznie zmieniająca wyświetlanie pól dla punktowania
+function togglePointsField(selectElement) {
+    const pointsType = selectElement.value;
+    const pointsValueDiv = selectElement.closest('.question-points-type-div').querySelector('.points-value-div');
+    if (pointsType === 'full') {
+        pointsValueDiv.querySelector('.points-label').innerText = 'Punkty za wszystkie poprawne odpowiedzi:';
+    } else if (pointsType === 'partial') {
+        pointsValueDiv.querySelector('.points-label').innerText = 'Punkty za każdą poprawną odpowiedź:';
     }
 }

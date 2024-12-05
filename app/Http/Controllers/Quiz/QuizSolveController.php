@@ -8,6 +8,7 @@ use App\Models\Question;
 use App\Models\Answer;
 use App\Models\UserAttempt;
 use App\Models\UserAnswer;
+use App\Models\QuizVersion;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -21,64 +22,98 @@ class QuizSolveController extends Controller
         $userId = Auth::id();
         $quiz = Quiz::findOrFail($quizId);
 
-        // Sprawdzenie liczby podejść użytkownika do quizu
+        // Sprawdzenie, czy quiz jest aktywny
+        if (!$quiz->is_active) {
+            return redirect()->route('user.dashboard')->with('message', 'Ten quiz nie jest aktywny.');
+        }
+
+        // Pobierz najnowszą wersję quizu
+        $quizVersion = QuizVersion::where('quiz_id', $quizId)->latest('version_number')->first();
+
+        if (!$quizVersion) {
+            return redirect()->route('user.dashboard')->with('message', 'Brak dostępnej wersji tego quizu.');
+        }
+
+        // Sprawdzenie liczby podejść użytkownika do konkretnej wersji quizu
         $userAttempt = UserAttempt::where('user_id', $userId)
-            ->where('quiz_id', $quizId)
+            ->where('quiz_version_id', $quizVersion->id)
             ->latest()
             ->first();
 
         if (!$quiz->multiple_attempts && $userAttempt) {
             return redirect()->route('user.dashboard')
-                ->with('message', 'Osiągnąłeś maksymalną liczbę podejść do tego quizu.');
+                ->with('message', 'Osiągnąłeś maksymalną liczbę podejść do tej wersji quizu.');
         }
 
-        // Jeśli użytkownik może przystąpić do quizu, tworzymy wpis o próbie tylko raz
-        if (!$userAttempt || $quiz->multiple_attempts) {
-            $userAttempt = UserAttempt::create([
-                'user_id' => $userId,
-                'quiz_id' => $quizId,
-                'attempt_number' => $userAttempt ? $userAttempt->attempt_number + 1 : 1,
-            ]);
-        }
+        // Pobranie ostatniego numeru podejścia do tej wersji quizu
+        $lastAttempt = UserAttempt::where('user_id', $userId)
+            ->where('quiz_version_id', $quizVersion->id)
+            ->latest('attempt_number')
+            ->first();
 
-        // Pobranie quizu wraz z pytaniami i odpowiedziami
-        $quiz = Quiz::with('questions.answers')->findOrFail($quizId);
+        $attemptNumber = $lastAttempt ? $lastAttempt->attempt_number + 1 : 1;
 
-        // Przekazanie quizu oraz id podejścia do widoku
+        // Jeśli użytkownik może przystąpić do quizu, tworzymy nowe podejście
+        $userAttempt = UserAttempt::create([
+            'user_id' => $userId,
+            'quiz_version_id' => $quizVersion->id,
+            'quiz_id' => $quizId,
+            'attempt_number' => $attemptNumber,
+            'started_at' => now(), // Zapisujemy czas rozpoczęcia
+        ]);
+
+        // Pobranie pytań i odpowiedzi z wersjonowanych tabel
+        $questions = $quizVersion->versionedQuestions()->with('answers')->get();
+
+        // Przekazanie quizu, wersji quizu, pytań oraz id podejścia do widoku
         return view('quizzes.solve', [
             'quiz' => $quiz,
+            'quizVersion' => $quizVersion,
+            'questions' => $questions,
             'userAttemptId' => $userAttempt->id,
         ]);
     }
-    
+
     // Zapisz odpowiedzi użytkownika
     // Zapisz odpowiedzi użytkownika
     public function submitAnswers(Request $request, $quizId)
     {
         $user = Auth::user();
-        $questions = $request->input('questions', []);
+        $questionsInput = $request->input('questions', []);
         $userAttemptId = $request->input('user_attempt_id');
-
-        // Pobranie quizu
-        $quiz = Quiz::findOrFail($quizId);
 
         // Pobierz istniejące podejście użytkownika
         $userAttempt = UserAttempt::findOrFail($userAttemptId);
 
+        // Sprawdź, czy podejście należy do zalogowanego użytkownika
+        if ($userAttempt->user_id !== $user->id) {
+            return redirect()->route('user.dashboard')->with('message', 'Nie masz uprawnień do tego działania.');
+        }
+
+        // Pobierz wersję quizu
+        $quizVersion = QuizVersion::findOrFail($userAttempt->quiz_version_id);
+
         $totalPoints = 0;
 
-        // Przechowywanie odpowiedzi użytkownika
-        foreach ($questions as $questionId => $response) {
-            $question = Question::findOrFail($questionId);
+        // Pobranie pytań z wersji quizu
+        $questions = $quizVersion->versionedQuestions()->with('answers')->get()->keyBy('id');
+
+        // Przetwarzanie odpowiedzi użytkownika
+        foreach ($questionsInput as $questionId => $response) {
+            $question = $questions->get($questionId);
+
+            if (!$question) {
+                continue; // Pomijamy nieprawidłowe ID pytań
+            }
 
             if ($question->type === 'open') {
                 // Odpowiedź otwarta
                 $openAnswer = $response['open_answer'] ?? null;
 
-                if ($openAnswer) {
-                    // Przeprowadzenie testu kodu użytkownika
-                    $answer = $question->answers->first(); // Pobierz poprawny kod dla tego pytania (zakładamy jedno poprawne rozwiązanie)
-                    $testResult = ['is_correct' => false]; // Domyślnie uznajemy za nieocenione
+                if ($openAnswer !== null) {
+                    // Pobierz oczekiwany kod
+                    $answer = $question->answers->first(); // Zakładamy jedno oczekiwane rozwiązanie
+                    $testResult = ['is_correct' => false];
 
                     if ($answer && $answer->expected_code) {
                         $testResult = $this->runCodeTest($openAnswer, $answer->expected_code);
@@ -87,53 +122,106 @@ class QuizSolveController extends Controller
                     // Ustal punktację
                     $questionScore = $testResult['is_correct'] ? $question->points : 0;
 
-                    // Dodaj punkty do sumy punktów całkowitych podejścia
+                    // Dodaj punkty do sumy
                     $totalPoints += $questionScore;
 
                     // Zapisz odpowiedź użytkownika
                     UserAnswer::create([
                         'user_id' => $user->id,
-                        'question_id' => $questionId,
+                        'attempt_id' => $userAttempt->id,
+                        'quiz_version_id' => $quizVersion->id,
+                        'versioned_question_id' => $question->id,
                         'open_answer' => $openAnswer,
                         'is_correct' => $testResult['is_correct'],
                         'score' => $questionScore,
-                        'attempt_id' => $userAttempt->id, // Użycie właściwego `attempt_id` z tabeli `user_attempts`
                     ]);
                 }
             } else {
-                // Odpowiedzi zamknięte (single/multiple choice)
-                $answers = $response['answers'] ?? [];
+                // Odpowiedzi zamknięte (single_choice, multiple_choice)
+                $answersInput = $response['answers'] ?? [];
 
-                foreach ((array) $answers as $answerId) {
-                    $answer = Answer::findOrFail($answerId);
+                $selectedAnswerIds = is_array($answersInput) ? $answersInput : [$answersInput];
 
-                    // Ustal punktację dla odpowiedzi zamkniętej
-                    $questionScore = $answer->is_correct ? $question->points : 0;
+                // Upewnij się, że identyfikatory odpowiedzi są liczbami
+                $selectedAnswerIds = array_map('intval', $selectedAnswerIds);
 
-                    // Dodaj punkty do sumy punktów całkowitych podejścia
+                // Pobierz poprawne odpowiedzi
+                $correctAnswerIds = $question->answers->where('is_correct', true)->pluck('id')->toArray();
+
+                if ($question->type === 'multiple_choice') {
+                    if ($question->points_type === 'full') {
+                        // Pełne punkty tylko jeśli wszystkie poprawne odpowiedzi są wybrane i żadna niepoprawna
+                        $isCorrect = empty(array_diff($correctAnswerIds, $selectedAnswerIds)) && empty(array_diff($selectedAnswerIds, $correctAnswerIds));
+
+                        $questionScore = $isCorrect ? $question->points : 0;
+                    } elseif ($question->points_type === 'partial') {
+                        // Częściowe punkty za każdą poprawną odpowiedź
+                        $correctSelected = array_intersect($correctAnswerIds, $selectedAnswerIds);
+                        $incorrectSelected = array_diff($selectedAnswerIds, $correctAnswerIds);
+
+                        $pointsPerCorrect = $question->points; // Punkty za każdą poprawną odpowiedź
+                        $questionScore = count($correctSelected) * $pointsPerCorrect;
+
+                        // Opcjonalnie można odjąć punkty za błędne odpowiedzi
+                        // $penaltyPerIncorrect = 1;
+                        // $questionScore -= count($incorrectSelected) * $penaltyPerIncorrect;
+
+                        // Upewnij się, że wynik nie jest ujemny
+                        $questionScore = max($questionScore, 0);
+                    } else {
+                        $questionScore = 0;
+                    }
+
+                    // Dodaj punkty do sumy
                     $totalPoints += $questionScore;
 
                     // Zapisz odpowiedź użytkownika
                     UserAnswer::create([
                         'user_id' => $user->id,
-                        'question_id' => $questionId,
-                        'answer_id' => $answerId,
-                        'is_correct' => $answer->is_correct,
+                        'attempt_id' => $userAttempt->id,
+                        'quiz_version_id' => $quizVersion->id,
+                        'versioned_question_id' => $question->id,
+                        'selected_answers' => implode(',', $selectedAnswerIds),
+                        'is_correct' => $questionScore > 0,
                         'score' => $questionScore,
-                        'attempt_id' => $userAttempt->id, // Użycie właściwego `attempt_id` z tabeli `user_attempts`
                     ]);
+                } else {
+                    // Pytanie jednokrotnego wyboru
+                    $selectedAnswerId = intval($selectedAnswerIds[0]);
+                    $answer = $question->answers->find($selectedAnswerId);
+
+                    if ($answer) {
+                        $isCorrect = $answer->is_correct;
+                        $questionScore = $isCorrect ? $question->points : 0;
+
+                        $totalPoints += $questionScore;
+
+                        // Zapisz odpowiedź użytkownika
+                        UserAnswer::create([
+                            'user_id' => $user->id,
+                            'attempt_id' => $userAttempt->id,
+                            'quiz_version_id' => $quizVersion->id,
+                            'versioned_question_id' => $question->id,
+                            'versioned_answer_id' => $answer->id,
+                            'is_correct' => $isCorrect,
+                            'score' => $questionScore,
+                        ]);
+                    }
                 }
             }
         }
 
-        // Aktualizacja podejścia użytkownika z sumą punktów
-        $userAttempt->update(['score' => $totalPoints]);
+        // Aktualizacja podejścia użytkownika z sumą punktów i czasem zakończenia
+        $userAttempt->update([
+            'score' => $totalPoints,
+            'ended_at' => now(), // Zapisujemy czas zakończenia
+        ]);
 
-        // Przekierowanie na stronę wyników po rozwiązaniu quizu
-        return redirect()->route('user.dashboard')
+        // Przekierowanie na stronę wyników
+        return redirect()->route('quizzes.user_attempts', ['quizId' => $quizId])
             ->with('message', 'Twoje odpowiedzi zostały zapisane. Uzyskałeś ' . $totalPoints . ' punktów.');
     }
-
+    
     /**
      * Uruchamia testy kodu użytkownika w porównaniu do oczekiwanego kodu.
      *

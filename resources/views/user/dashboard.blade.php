@@ -7,6 +7,7 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            <!-- Twoja zawartość tutaj -->
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 bg-white border-b border-gray-200">
                     <h1 class="text-2xl font-semibold text-gray-800 mb-6">Twoje quizy</h1>
@@ -38,7 +39,7 @@
                                             </form>
 
                                             <!-- Dodano przycisk "Podejścia" -->
-                                            <a href="{{ route('quizzes.owner_attempts', $quiz->id) }}" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
+                                            <a href="{{ route('quiz.owner_attempts', $quiz->id) }}" class="bg-yellow-500 hover:bg-yellow-700 text-white font-bold py-2 px-4 rounded">
                                                 Podejścia
                                             </a>
                                         </div>
@@ -69,10 +70,11 @@
                                                     <span class="font-semibold text-lg">{!! $quiz->title !!}</span>
                                                     <div class="flex space-x-4">
                                                         @php
+                                                            // Liczba podejść użytkownika do najnowszej wersji quizu
                                                             $attemptCount = $userAttempts[$quiz->id] ?? 0;
                                                         @endphp
 
-                                                        <!-- Nowy warunek dla quizów jednorazowych -->
+                                                        <!-- Zaktualizowany warunek dla quizów jednorazowych -->
                                                         @if(!$quiz->multiple_attempts && $attemptCount >= 1)
                                                             <span class="text-gray-600 font-bold">Nie można ponownie przystąpić do quizu</span>
                                                         @else
@@ -108,10 +110,11 @@
                                             <span class="font-semibold text-lg">{!! $quiz->title !!}</span>
                                             <div class="flex space-x-4">
                                                 @php
+                                                    // Liczba podejść użytkownika do najnowszej wersji quizu
                                                     $attemptCount = $userAttempts[$quiz->id] ?? 0;
                                                 @endphp
 
-                                                <!-- Nowy warunek dla quizów jednorazowych -->
+                                                <!-- Zaktualizowany warunek dla quizów jednorazowych -->
                                                 @if(!$quiz->multiple_attempts && $attemptCount >= 1)
                                                     <span class="text-gray-600 font-bold">Nie można ponownie przystąpić do quizu</span>
                                                 @else
