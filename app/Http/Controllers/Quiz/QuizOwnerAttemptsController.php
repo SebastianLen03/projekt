@@ -13,101 +13,95 @@ use App\Models\QuizVersion;
 
 class QuizOwnerAttemptsController extends Controller
 {
-    /**
-     * Wyświetla odpowiedzi użytkowników na dany quiz.
-     *
-     * @param int $quizId ID quizu.
-     * @return \Illuminate\View\View
-     */
     public function showAttempts($quizId)
     {
         $userId = Auth::id();
         $quiz = Quiz::findOrFail($quizId);
-
+        
         // Sprawdzenie, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== $userId) {
             abort(403, 'Nie masz uprawnień do przeglądania tych informacji.');
         }
 
-        // Pobranie wszystkich podejść użytkowników do quizu wraz z ich wynikami
+        // Pobranie wszystkich podejść użytkowników do quizu wraz z wersją quizu
         $userAttempts = UserAttempt::where('quiz_id', $quizId)
             ->with('user', 'quizVersion')
             ->orderBy('user_id')
             ->orderBy('attempt_number')
             ->get();
 
+        // Pogrupowanie podejść według wersji quizu
+        $groupedAttemptsByVersion = $userAttempts->groupBy('quiz_version_id');
+
         // Pobranie odpowiedzi użytkowników do pytań z tego quizu
         $userAnswers = UserAnswer::whereIn('attempt_id', $userAttempts->pluck('id'))
             ->get()
             ->groupBy('attempt_id');
 
+        // Pobranie wszystkich wersji tego quizu
+        $quizVersions = QuizVersion::where('quiz_id', $quizId)->orderBy('version_number')->get();
+
         // Dodanie obliczenia punktów do każdego podejścia
         foreach ($userAttempts as $attempt) {
             $userScore = 0;
+            $attemptQuizVersion = $attempt->quizVersion;
+            if (!$attemptQuizVersion) {
+                continue;
+            }
 
-            // Pobierz wersję quizu dla tego podejścia
-            $quizVersion = $attempt->quizVersion;
-
-            // Pobierz pytania i odpowiedzi z wersji quizu
-            $versionedQuestions = $quizVersion->questions()->with('answers')->get()->keyBy('id');
+            $versionedQuestions = $attemptQuizVersion->versionedQuestions()->with('answers')->get()->keyBy('id');
 
             if (isset($userAnswers[$attempt->id])) {
                 foreach ($userAnswers[$attempt->id] as $userAnswer) {
-                    // Jeśli punkty zostały ocenione ręcznie, pomijamy automatyczne obliczenie
+                    // Pomijamy obliczenia dla ręcznie ocenionych odpowiedzi
                     if ($userAnswer->is_manual_score) {
                         $userScore += $userAnswer->score ?? 0;
                         continue;
                     }
 
-                    // Pobierz pytanie powiązane z odpowiedzią
                     $question = $versionedQuestions->get($userAnswer->versioned_question_id);
-
                     if ($question) {
-                        // Sprawdź, czy odpowiedź jest poprawna
+                        $pointsType = $question->points_type ?? 'full';
+
                         if ($question->type === 'open') {
-                            // Zakładamy, że ocena odpowiedzi otwartej jest ręczna
                             $userScore += $userAnswer->score ?? 0;
                         } else {
                             $correctAnswerIds = $question->answers->where('is_correct', true)->pluck('id')->toArray();
 
-                            // Dla pytań wielokrotnego wyboru
                             if ($question->type === 'multiple_choice') {
-                                // Pobierz wszystkie wybrane odpowiedzi przez użytkownika
-                                $selectedAnswerIds = explode(',', $userAnswer->selected_answers);
+                                $selectedAnswerIds = $userAnswer->selected_answers ? explode(',', $userAnswer->selected_answers) : [];
 
-                                if ($question->points_type === 'full') {
-                                    // Pełne punkty tylko jeśli wszystkie poprawne odpowiedzi zostały wybrane
+                                if ($pointsType === 'full') {
                                     if (array_diff($correctAnswerIds, $selectedAnswerIds) === [] && array_diff($selectedAnswerIds, $correctAnswerIds) === []) {
                                         $userAnswer->score = $question->points;
-                                        $userScore += $userAnswer->score;
                                     } else {
                                         $userAnswer->score = 0;
                                     }
-                                } elseif ($question->points_type === 'partial') {
-                                    // Częściowe punkty za każdą poprawną odpowiedź
+                                } elseif ($pointsType === 'partial') {
                                     $correctSelected = array_intersect($correctAnswerIds, $selectedAnswerIds);
                                     $pointsPerCorrect = $question->points;
                                     $userAnswer->score = count($correctSelected) * $pointsPerCorrect;
-                                    $userScore += $userAnswer->score;
+                                } else {
+                                    $userAnswer->score = in_array($selectedAnswerIds, $correctAnswerIds) ? $question->points : 0;
                                 }
+
+                                $userScore += $userAnswer->score;
                             } else {
-                                // Pytania jednokrotnego wyboru
+                                // Pytanie jednokrotnego wyboru
                                 if (in_array($userAnswer->versioned_answer_id, $correctAnswerIds)) {
                                     $userAnswer->score = $question->points;
-                                    $userScore += $userAnswer->score;
                                 } else {
                                     $userAnswer->score = 0;
                                 }
+                                $userScore += $userAnswer->score;
                             }
                         }
                     }
                 }
             }
 
-            // Przechowaj obliczony wynik w podejściu
             $attempt->calculated_score = $userScore;
 
-            // Logowanie informacji o obliczonym wyniku dla każdego podejścia
             Log::info('Attempt score calculated:', [
                 'attempt_id' => $attempt->id,
                 'user_id' => $attempt->user_id,
@@ -116,53 +110,93 @@ class QuizOwnerAttemptsController extends Controller
             ]);
         }
 
-        // Przekazanie danych do widoku
+        // Obliczanie średniego wyniku na pytanie dla każdej wersji
+        $averageScorePerQuestionDataByVersion = [];
+        $passingDataByVersion = [];
+
+        foreach ($quizVersions as $version) {
+            $questions = $version->versionedQuestions()->with('answers')->get();
+            $averageScorePerQuestionData = [];
+
+            foreach ($questions as $question) {
+                $totalScore = 0;
+                $attemptCount = 0;
+
+                // Iterujemy po podejściach dla tej konkretnej wersji
+                $versionAttempts = $groupedAttemptsByVersion[$version->id] ?? collect();
+                foreach ($versionAttempts as $attempt) {
+                    $userAnswer = $userAnswers->get($attempt->id, collect())->firstWhere('versioned_question_id', $question->id);
+                    if ($userAnswer) {
+                        $totalScore += $userAnswer->score;
+                        $attemptCount++;
+                    }
+                }
+
+                $averageScorePerQuestionData[] = [
+                    'question_text' => $question->question_text,
+                    'average_score' => $attemptCount > 0 ? round($totalScore / $attemptCount, 2) : 0,
+                ];
+            }
+
+            $averageScorePerQuestionDataByVersion[$version->id] = $averageScorePerQuestionData;
+
+            // Obliczenie liczby zdanych i niezdanych podejść dla tej wersji
+            $passingData = ['passed' => 0, 'failed' => 0];
+            $versionAttempts = $groupedAttemptsByVersion[$version->id] ?? collect();
+
+            if ($version->has_passing_criteria && $questions->count() > 0) {
+                $totalPossiblePoints = $questions->sum('points');
+
+                foreach ($versionAttempts as $attempt) {
+                    $scorePercentage = ($totalPossiblePoints > 0) ? ($attempt->calculated_score / $totalPossiblePoints) * 100 : 0;
+                    
+                    if ($version->passing_score && $attempt->calculated_score >= $version->passing_score) {
+                        $passingData['passed']++;
+                    } elseif ($version->passing_percentage && $scorePercentage >= $version->passing_percentage) {
+                        $passingData['passed']++;
+                    } else {
+                        $passingData['failed']++;
+                    }
+                }
+            }
+
+            $passingDataByVersion[$version->id] = $passingData;
+        }
+
         return view('quizzes.owner_attempts', [
             'quiz' => $quiz,
-            'userAttempts' => $userAttempts,
+            'quizVersions' => $quizVersions,
+            'groupedAttemptsByVersion' => $groupedAttemptsByVersion,
             'groupedUserAnswers' => $userAnswers,
+            'averageScorePerQuestionDataByVersion' => $averageScorePerQuestionDataByVersion,
+            'passingDataByVersion' => $passingDataByVersion,
         ]);
     }
 
-    /**
-     * Zapisuje zaktualizowane punkty dla odpowiedzi użytkowników.
-     *
-     * @param \Illuminate\Http\Request $request
-     * @param int $quizId
-     * @return \Illuminate\Http\RedirectResponse
-     */
     public function updateScores(Request $request, $quizId)
     {
         $userId = Auth::id();
         $quiz = Quiz::findOrFail($quizId);
 
-        // Sprawdzenie, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== $userId) {
             abort(403, 'Nie masz uprawnień do edycji tych informacji.');
         }
 
-        // Pobranie attempt_id z formularza
         $attemptId = $request->input('attempt_id');
-
-        // Pobranie punktów z formularza
         $scores = $request->input('scores', []);
 
         foreach ($scores as $answerId => $score) {
             $userAnswer = UserAnswer::find($answerId);
             if ($userAnswer && $userAnswer->attempt_id == $attemptId) {
-                $userAnswer->score = $score; // Aktualizacja punktów
-                $userAnswer->is_manual_score = true; // Oznacz jako ręcznie ocenione
+                $userAnswer->score = $score;
+                $userAnswer->is_manual_score = true;
                 $userAnswer->save();
             }
         }
 
-        // Zaktualizuj sumę punktów dla tego podejścia
         $attempt = UserAttempt::find($attemptId);
         if ($attempt) {
-            // Pobierz sumę punktów z UserAnswer
             $totalScore = UserAnswer::where('attempt_id', $attemptId)->sum('score');
-
-            // Zaktualizuj pole score w UserAttempt
             $attempt->score = $totalScore;
             $attempt->save();
         }

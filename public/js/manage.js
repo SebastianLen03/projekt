@@ -88,18 +88,15 @@ async function saveQuiz() {
         return;
     }
 
-    // Nowe pola związane z kryteriami zdawalności
     const passingType = document.getElementById('passing-type').value;
     const passingScore = document.getElementById('passing-score').value;
     const passingPercentage = document.getElementById('passing-percentage').value;
 
-    // Ustal, czy ustawiono kryteria zdawalności
     let hasPassingCriteria = false;
     if (passingType === 'points' || passingType === 'percentage') {
         hasPassingCriteria = true;
     }
 
-    // Nowe pola związane z limitem czasu
     const hasTimeLimit = document.getElementById('enable-time-limit').checked;
     const timeLimit = document.getElementById('quiz-time-limit').value;
 
@@ -113,7 +110,6 @@ async function saveQuiz() {
             questions: []
         };
 
-        // Dodajemy pola związane z kryteriami zdawalności
         if (passingType === 'points') {
             data.passing_score = parseInt(passingScore);
             data.passing_percentage = null;
@@ -125,14 +121,12 @@ async function saveQuiz() {
             data.passing_percentage = null;
         }
 
-        // Dodajemy pole limitu czasu
         if (hasTimeLimit) {
             data.time_limit = parseInt(timeLimit);
         } else {
             data.time_limit = null;
         }
 
-        // Jeśli quiz nie jest publiczny, dodajemy wybrane grupy
         if (!isPublic) {
             const selectedGroups = [];
             document.querySelectorAll('input[name="groups[]"]:checked').forEach((checkbox) => {
@@ -252,6 +246,13 @@ async function saveQuiz() {
 
         const responseData = await response.json();
         alert('Quiz i wszystkie pytania zostały zapisane pomyślnie.');
+
+        // Tutaj aktualizujemy status quizu na "Nieaktywny", bo zapisywanie zmian go dezaktywuje.
+        const quizStatusElement = document.getElementById('quiz-status');
+        quizStatusElement.innerText = 'Nieaktywny';
+        quizStatusElement.classList.remove('text-green-600');
+        quizStatusElement.classList.add('text-red-600');
+
     } catch (error) {
         console.error('Error:', error);
         alert('Wystąpił błąd podczas zapisywania quizu lub pytań: ' + error.message);
