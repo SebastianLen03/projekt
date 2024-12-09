@@ -7,26 +7,24 @@
 
     <!-- Dodaj CodeMirror CSS i JS -->
     <head>
-    <!-- Dodaj CodeMirror CSS i JS -->
-    <!-- Style CodeMirror -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
-    <!-- Motyw CodeMirror (np. monokai) -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/monokai.min.css">
-    <!-- Biblioteka CodeMirror -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+        <!-- Style CodeMirror -->
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/monokai.min.css">
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+        
+        <!-- Tryby języków CodeMirror -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/php/php.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/xml/xml.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/css/css.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
 
-    <!-- Tryby języków dla CodeMirror -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/php/php.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/xml/xml.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/css/css.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
+        <!-- TinyMCE -->
+        <script src="{{ asset('js/tinymce/tinymce.min.js') }}"></script>
 
-    <!-- Dodaj TinyMCE -->
-    <script src="{{ asset('js/tinymce/tinymce.min.js') }}"></script>
-
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <!-- Chart.js -->
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     </head>
 
     <style>
@@ -119,6 +117,11 @@
             color: #38a169;
             font-weight: bold;
         }
+
+        /* Dodatkowy styl dla CodeMirror */
+        .CodeMirror {
+            line-height: 1.5;
+        }
     </style>
 
     <div class="py-12">
@@ -140,7 +143,6 @@
                             </div>
                         @endif
 
-                        <!-- Lista wersji quizu -->
                         @foreach($quizVersions as $quizVersion)
                             @php
                                 $versionId = $quizVersion->id;
@@ -220,7 +222,6 @@
                                                 if ($attempt->started_at && $attempt->ended_at) {
                                                     $durationInSeconds = $attempt->ended_at->timestamp - $attempt->started_at->timestamp;
                                                     $durationInSeconds = max($durationInSeconds, 0);
-                                                    // Formatowanie czasu jako HH:MM:SS
                                                     $durationFormatted = gmdate('H:i:s', $durationInSeconds);
                                                 } else {
                                                     $durationFormatted = 'Brak danych';
@@ -258,7 +259,6 @@
                                                     <p><strong>Czas trwania podejścia:</strong> {{ $durationFormatted }}</p>
                                                 </div>
 
-                                                <!-- Szczegóły podejścia użytkownika, ukryte domyślnie -->
                                                 <div id="details-{{ $attempt->id }}" class="attempt-details mb-6 p-4 border border-gray-300 rounded collapsible">
                                                     @foreach($questions as $question)
                                                         @php
@@ -277,7 +277,7 @@
                                                             @if($question->type === 'open')
                                                                 <label class="block font-bold mb-2">Odpowiedź użytkownika:</label>
                                                                 @if($userAnswer && !empty($userAnswer->open_answer))
-                                                                    <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
+                                                                    <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}"></div>
                                                                 @else
                                                                     <p>Brak odpowiedzi</p>
                                                                 @endif
@@ -328,7 +328,6 @@
         </div>
     </div>
     
-    <!-- JavaScript do inicjalizacji CodeMirror i Chart.js -->
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             window.toggleDetails = function (detailsId) {
@@ -337,6 +336,10 @@
                     details.classList.toggle('expanded');
                     if (details.classList.contains('expanded')) {
                         initializeCodeMirrors(details);
+                        setTimeout(() => {
+                            const codeEditors = details.querySelectorAll('.CodeMirror');
+                            codeEditors.forEach(cmEl => cmEl.CodeMirror.refresh());
+                        }, 100);
                     }
                 }
             }
@@ -347,6 +350,10 @@
                     details.classList.toggle('expanded');
                     if (details.classList.contains('expanded')) {
                         initializeCodeMirrors(details);
+                        setTimeout(() => {
+                            const codeEditors = details.querySelectorAll('.CodeMirror');
+                            codeEditors.forEach(cmEl => cmEl.CodeMirror.refresh());
+                        }, 100);
                     }
                 }
             }
@@ -360,13 +367,14 @@
                             const textarea = document.createElement('textarea');
                             textarea.value = codeContent;
                             container.appendChild(textarea);
-                            CodeMirror.fromTextArea(textarea, {
+                            const editor = CodeMirror.fromTextArea(textarea, {
                                 lineNumbers: true,
-                                mode: "text/x-php",
+                                mode: { name: 'php', startOpen: true },
                                 readOnly: true,
                                 theme: 'monokai',
                                 tabSize: 2
                             });
+                            editor.setSize("100%", null);
                             container.classList.add('initialized');
                         }
                     });
@@ -380,7 +388,6 @@
                 event.target.submit();
             }
 
-            // Inicjalizacja wykresów Chart.js dla każdej wersji quizu
             @foreach($quizVersions as $quizVersion)
                 @php
                     $versionId = $quizVersion->id;
@@ -391,15 +398,11 @@
                 @endphp
 
                 const attemptData_{{ $versionId }} = {!! $attemptsJson !!};
-
                 const scores_{{ $versionId }} = attemptData_{{ $versionId }}.map(attempt => attempt.score);
                 const emails_{{ $versionId }} = attemptData_{{ $versionId }}.map(attempt => attempt.user.email);
                 const durations_{{ $versionId }} = attemptData_{{ $versionId }}.map(attempt => {
                     if (attempt.ended_at && attempt.started_at) {
                         const durationInSeconds = (new Date(attempt.ended_at).getTime() - new Date(attempt.started_at).getTime()) / 1000;
-                        // Zamiast zaokrąglać do minut w formie dziesiętnej, pokazujemy tylko dane dla wykresu. 
-                        // Możesz też sformatować czas przed wyświetleniem, jeśli wykres ma wyświetlać dane czasu w formacie HH:MM:SS, 
-                        // należałoby wprowadzić inną logikę. Na razie zostawiamy w minutach całkowitych.
                         return Math.round(durationInSeconds / 60);
                     }
                     return 0;
@@ -415,7 +418,6 @@
                     }
                 }
 
-                // Wykres histogramu wyników
                 initChart('scoresHistogramChart_{{ $versionId }}', {
                     type: 'bar',
                     data: {
@@ -437,7 +439,6 @@
                     }
                 });
 
-                // Wykres średniego wyniku na pytanie
                 initChart('averageScorePerQuestionChart_{{ $versionId }}', {
                     type: 'bar',
                     data: {
@@ -459,7 +460,6 @@
                     }
                 });
 
-                // Wykres wyniku zdane/niezdane
                 initChart('passFailPieChart_{{ $versionId }}', {
                     type: 'pie',
                     data: {
@@ -477,7 +477,6 @@
                     }
                 });
 
-                // Wykres czasu trwania podejścia (minuty)
                 initChart('durationChart_{{ $versionId }}', {
                     type: 'line',
                     data: {

@@ -34,6 +34,11 @@
         .incorrect-answer {
             background-color: #fed7d7; /* czerwone tło dla błędnych odpowiedzi */
         }
+
+        /* Dodatkowy styl dla CodeMirror */
+        .CodeMirror {
+            line-height: 1.5;
+        }
     </style>
 
     <div class="py-12">
@@ -72,15 +77,10 @@
 
                                     // Obliczenie czasu trwania podejścia
                                     if ($attempt->started_at && $attempt->ended_at) {
-                                        // Oblicz różnicę w sekundach używając znaczników czasu
                                         $durationInSeconds = $attempt->ended_at->timestamp - $attempt->started_at->timestamp;
-
-                                        // Jeśli różnica jest ujemna, ustaw na 0
                                         if ($durationInSeconds < 0) {
                                             $durationInSeconds = 0;
                                         }
-
-                                        // Sformatuj czas trwania
                                         $durationFormatted = gmdate('H:i:s', $durationInSeconds);
                                     } else {
                                         $durationFormatted = 'Brak danych';
@@ -143,7 +143,6 @@
                                                 @if($question->type === 'open')
                                                     <label class="block font-bold mb-2">Twoja odpowiedź:</label>
                                                     @if($userAnswer && !empty($userAnswer->open_answer))
-                                                        <!-- Zapisz odpowiedź w data-atrybucie bez kodowania encji -->
                                                         <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
                                                         @if($userAnswer->is_correct)
                                                             <span class="text-green-500 font-bold">(Poprawna odpowiedź!)</span>
@@ -158,7 +157,6 @@
                                                     @php
                                                         $selectedAnswerIds = $userAnswer ? explode(',', $userAnswer->selected_answers) : [];
                                                     @endphp
-                                                    <!-- Iteracja przez wszystkie możliwe odpowiedzi -->
                                                     @foreach($question->answers as $answer)
                                                         @php
                                                             $isSelected = in_array($answer->id, $selectedAnswerIds);
@@ -179,7 +177,6 @@
                                                     @php
                                                         $selectedAnswerId = $userAnswer ? $userAnswer->versioned_answer_id : null;
                                                     @endphp
-                                                    <!-- Iteracja przez wszystkie możliwe odpowiedzi -->
                                                     @foreach($question->answers as $answer)
                                                         @php
                                                             $isSelected = $selectedAnswerId == $answer->id;
@@ -220,8 +217,12 @@
                     details.classList.remove('expanded');
                 } else {
                     details.classList.add('expanded');
-                    // Generuj pola kodu po rozwinięciu
                     initializeCodeMirrors(details);
+                    // Dodaj opóźnienie aby odświeżyć CodeMirror po wyświetleniu
+                    setTimeout(() => {
+                        const codeEditors = details.querySelectorAll('.CodeMirror');
+                        codeEditors.forEach(cmEl => cmEl.CodeMirror.refresh());
+                    }, 100);
                 }
             }
 
@@ -231,20 +232,17 @@
                     codeContainers.forEach(function (container) {
                         if (!container.classList.contains('initialized')) {
                             const codeContent = container.getAttribute('data-code');
-                            const questionId = container.getAttribute('data-question-id');
-                            const attemptId = container.getAttribute('data-attempt-id');
                             const textarea = document.createElement('textarea');
                             textarea.value = codeContent;
-                            textarea.id = `code_output_${questionId}_${attemptId}`;
                             container.appendChild(textarea);
-                            // Inicjalizuj CodeMirror
-                            CodeMirror.fromTextArea(textarea, {
+                            const editor = CodeMirror.fromTextArea(textarea, {
                                 lineNumbers: true,
-                                mode: "php",
+                                mode: { name: 'php', startOpen: true },
                                 readOnly: true,
                                 theme: 'monokai',
                                 tabSize: 2
                             });
+                            editor.setSize("100%", null);
                             container.classList.add('initialized');
                         }
                     });
