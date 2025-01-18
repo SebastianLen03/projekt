@@ -12,6 +12,7 @@ class CreateQuizVersionsTable extends Migration
             $table->id();
             $table->foreignId('quiz_id')->constrained()->onDelete('cascade');
             $table->integer('version_number');
+            $table->boolean('is_draft')->default(false);
             $table->boolean('has_passing_criteria')->default(false);
             $table->integer('passing_score')->nullable();
             $table->integer('passing_percentage')->nullable();

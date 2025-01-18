@@ -116,7 +116,8 @@ class QuizSolveController extends Controller
                     $testResult = ['is_correct' => false];
 
                     if ($answer && $answer->expected_code) {
-                        $testResult = $this->runCodeTest($openAnswer, $answer->expected_code);
+                        $language = $answer->language ?? 'php'; // domyślnie php
+                        $testResult = $this->runCodeTest($openAnswer, $answer->expected_code, $language);
                     }
 
                     // Ustal punktację
@@ -222,14 +223,179 @@ class QuizSolveController extends Controller
             ->with('message', 'Twoje odpowiedzi zostały zapisane. Uzyskałeś ' . $totalPoints . ' punktów.');
     }
     
-    /**
-     * Uruchamia testy kodu użytkownika w porównaniu do oczekiwanego kodu.
-     *
-     * @param string $userCode Kod użytkownika.
-     * @param string $expectedCode Oczekiwany kod.
-     * @return array Wynik testów kodu użytkownika i oczekiwanego kodu.
-     */
-    protected function runCodeTest($userCode, $expectedCode)
+/**
+ * Uruchamia testy kodu użytkownika w porównaniu do oczekiwanego kodu.
+ * Teraz dla Javy rezygnujemy z rename i wstrzykiwania automatycznego test(...).
+ */
+protected function runCodeTest($userCode, $expectedCode, $language = 'php')
+{
+    switch ($language) {
+        case 'php':
+            // Stary mechanizm rename i generowanie test(...) + testcases
+            return $this->runPhpTest($userCode, $expectedCode);
+
+        case 'java':
+            // Nowe podejście – user ma 100% kontroli nad metodami
+            return $this->runJavaTestNoRename($userCode, $expectedCode);
+
+        default:
+            return [
+                'is_correct' => false,
+                'comparisons' => [],
+                'error' => 'Unsupported language'
+            ];
+    }
+}
+
+/**
+ * Wersja runJavaTest pozwalająca na wiele metod w Javie,
+ * bez rename do "test(...)". Użytkownik musi mieć (lub otrzyma) main(...),
+ * który sam wywołuje testA, testB, itp.
+ */
+protected function runJavaTestNoRename($rawUserCode, $rawExpectedCode)
+{
+    Log::info('runJavaTestNoRename: Start');
+
+    // 1) Przygotuj kod usera i expected (opakuj w "public class Code { ... }", jeśli brak)
+    $userCode = $this->prepareJavaCodeNoRename($rawUserCode);
+    $expectedCode = $this->prepareJavaCodeNoRename($rawExpectedCode);
+
+    Log::info('runJavaTestNoRename: After prepareJavaCodeNoRename', [
+        'userCode' => $userCode,
+        'expectedCode' => $expectedCode,
+    ]);
+
+    // 2) Kompilacja + uruchom user code w Dockerze
+    $userResult = $this->executeCodeWithDockerJava($userCode);
+    Log::info('runJavaTestNoRename: userResult', $userResult);
+
+    // 3) Kompilacja + uruchom expected code w Dockerze
+    $expectedResult = $this->executeCodeWithDockerJava($expectedCode);
+    Log::info('runJavaTestNoRename: expectedResult', $expectedResult);
+
+    // 4) Porównanie wyjść liniowo
+    $comparison = $this->compareResultsLineByLine($userResult, $expectedResult);
+
+    Log::info('runJavaTestNoRename: compareResultsLineByLine', $comparison);
+
+    return $comparison;
+}
+
+/**
+ * Minimalne opakowanie w "public class Code { ... }" – bez rename metod.
+ * Dodanie main(...) jeśli user nie wkleił żadnej.
+ */
+protected function prepareJavaCodeNoRename($rawCode)
+{
+    Log::info('prepareJavaCodeNoRename: Original code', [
+        'length' => strlen($rawCode),
+        'snippet' => substr($rawCode, 0, 200),
+    ]);
+
+    // Sprawdź, czy user wkleił "public class"
+    if (!str_contains($rawCode, 'public class')) {
+        Log::info('prepareJavaCodeNoRename: Wrapping user code in public class Code');
+        $rawCode = "public class Code {\n" . $rawCode . "\n}\n";
+    }
+
+    // Czy user ma main?
+    if (!$this->hasJavaMainMethod($rawCode)) {
+        Log::info('prepareJavaCodeNoRename: No main found, adding minimal main');
+        $rawCode .= "\npublic static void main(String[] args) {\n"
+                  . "   // Placeholder main – user did not provide any\n"
+                  . "   System.out.println(\"[INFO] (generated main) No user main provided.\");\n"
+                  . "}\n";
+    } else {
+        Log::info('prepareJavaCodeNoRename: main(...) found, leaving code as-is');
+    }
+
+    return $rawCode;
+}
+
+/**
+ * Sprawdza, czy w kodzie występuje "main(" (względnie proste),
+ * co pozwala nam uznać, że user ma metodę main.
+ */
+protected function hasJavaMainMethod($code)
+{
+    return str_contains($code, 'main(');
+}
+
+/**
+ * Porównuje wyjścia programów usera i expected line-by-line.
+ * Dodaje logi dla wglądu.
+ */
+protected function compareResultsLineByLine($userResult, $expectedResult)
+{
+    // Sprawdź error (np. błąd kompilacji)
+    if ($userResult['error'] || $expectedResult['error']) {
+        Log::warning('compareResultsLineByLine: compilation/runtime error', [
+            'userError' => $userResult['error'],
+            'expError'  => $expectedResult['error'],
+        ]);
+        return [
+            'is_correct' => false,
+            'error' => trim($userResult['error'] . ' | ' . $expectedResult['error']),
+            'comparisons' => [],
+        ];
+    }
+
+    // Rozdziel output na linie
+    $userLines = explode("\n", trim($userResult['output'] ?? ''));
+    $expLines  = explode("\n", trim($expectedResult['output'] ?? ''));
+
+    $max = max(count($userLines), count($expLines));
+    $comparisons = [];
+    $allPassed = true;
+
+    for ($i = 0; $i < $max; $i++) {
+        $uLine = $userLines[$i] ?? '';
+        $eLine = $expLines[$i] ?? '';
+        $passed = ($uLine === $eLine);
+        if (!$passed) {
+            $allPassed = false;
+        }
+        $comparisons[] = [
+            'line_index' => $i,
+            'user_line' => $uLine,
+            'expected_line' => $eLine,
+            'passed' => $passed,
+        ];
+    }
+
+    Log::info('compareResultsLineByLine: done', [
+        'allPassed' => $allPassed,
+        'linesCompared' => $max,
+    ]);
+
+    return [
+        'is_correct' => $allPassed,
+        'comparisons' => $comparisons,
+    ];
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    protected function runPhpTest($userCode, $expectedCode)
     {
         set_time_limit(120);
         Log::info('Testowanie kodu:', ['user_code' => $userCode, 'expected_code' => $expectedCode]);
@@ -268,6 +434,167 @@ class QuizSolveController extends Controller
         $expectedResult = $this->executeCodeWithDocker($codeToRunExpected, 15);
 
         return $this->compareResults($userResult, $expectedResult, $testCases);
+    }
+
+    // protected function runJavaTest($userCode, $expectedCode)
+    // {
+    //     Log::info('runJavaTest: userCode (raw)', ['code' => $userCode]);
+    //     Log::info('runJavaTest: expectedCode (raw)', ['code' => $expectedCode]);
+    
+    //     // 1. Przygotuj (opakuj) userCode i expectedCode w klasę (o ile trzeba)
+    //     //    + ewentualnie wymuś nazwę "test(...)"
+    //     $userCode = $this->prepareJavaCode($userCode);
+    //     $expectedCode = $this->prepareJavaCode($expectedCode);
+    
+    //     Log::info('runJavaTest: userCode (prepared)', ['code' => $userCode]);
+    //     Log::info('runJavaTest: expectedCode (prepared)', ['code' => $expectedCode]);
+    
+    //     // 2. Określ liczbę parametrów, by generować testCases
+    //     $paramCount = $this->getFunctionParamCountJava($userCode);
+    //     $testCases = [];
+    //     for ($i = 0; $i < 10; $i++) {
+    //         $inputs = [];
+    //         for ($j = 0; $j < $paramCount; $j++) {
+    //             $inputs[] = rand(-30, 30);
+    //         }
+    //         $testCases[] = ['input' => $inputs];
+    //     }
+    
+    //     Log::info('runJavaTest: testCases', $testCases);
+    
+    //     // 3. Doklej main(...) TYLKO jeśli user code NIE zawiera main
+    //     $userHasMain = $this->userHasMainMethod($userCode); 
+    //     $codeToRunUser = $userCode;
+    //     if (!$userHasMain) {
+    //         // nie ma main → dodajemy
+    //         $codeToRunUser .= $this->generateMainJava($testCases);
+    //     }
+    
+    //     // to samo dla expectedCode
+    //     $expectedHasMain = $this->userHasMainMethod($expectedCode);
+    //     $codeToRunExpected = $expectedCode;
+    //     if (!$expectedHasMain) {
+    //         $codeToRunExpected .= $this->generateMainJava($testCases);
+    //     }
+    
+    //     Log::info('runJavaTest: codeToRunUser', ['code' => $codeToRunUser]);
+    //     Log::info('runJavaTest: codeToRunExpected', ['code' => $codeToRunExpected]);
+    
+    //     // 4. Wykonaj w Dockerze
+    //     $userResult = $this->executeCodeWithDockerJava($codeToRunUser);
+    //     $expectedResult = $this->executeCodeWithDockerJava($codeToRunExpected);
+    
+    //     Log::info('runJavaTest: userResult', $userResult);
+    //     Log::info('runJavaTest: expectedResult', $expectedResult);
+    
+    //     // 5. Porównaj
+    //     $comparison = $this->compareResults($userResult, $expectedResult, $testCases);
+    //     Log::info('runJavaTest: compareResults', $comparison);
+    
+    //     return $comparison;
+    // }
+    
+
+    /**
+ * Sprawdza, czy w kodzie Javy jest zdefiniowana metoda `public static void main(`.
+ * Wystarczy proste wyszukiwanie substringu, choć można użyć regex.
+ *
+ * @param string $code
+ * @return bool
+ */
+protected function userHasMainMethod($code)
+{
+    // Najprostsza wersja: case-insensitive poszukiwanie
+    return stripos($code, 'public static void main(') !== false;
+}
+
+    
+    /**
+     * Umieszcza kod w klasie Code i ewentualnie wymusza nazwę funkcji na "test".
+     */
+    protected function prepareJavaCode($rawCode)
+    {
+        // 1. Sprawdź, czy user nie wkleił już "class Code"
+        //    Jeśli nie - opakuj w "public class Code { ... }"
+        if (!str_contains($rawCode, 'class Code')) {
+            $rawCode = "public class Code {\n" . $rawCode . "\n}\n";
+        }
+    
+        // 2. Ewentualnie wymuszamy nazwę "test" dla jedynej metody - uproszczenie:
+        $pattern = '/public\s+static\s+(\w+)\s+(\w+)\s*\(/'; 
+        if (preg_match($pattern, $rawCode, $matches)) {
+            $returnType = $matches[1]; // np. int
+            $oldName    = $matches[2]; // np. someFunc
+            // Zamień starą nazwę na "test"
+            $rawCode = preg_replace(
+                '/public\s+static\s+' . $returnType . '\s+' . $oldName . '\s*\(/',
+                "public static $returnType test(",
+                $rawCode
+            );
+            // Ewentualnie można także poszukać wywołań "someFunc(" i zamienić na "test("
+        }
+    
+        return $rawCode;
+    }
+    
+
+    protected function getFunctionParamCountJava($code)
+    {
+        // Załóżmy, że w prepareJavaCode wymuszamy sygnaturę "public static X test(...)"
+        // Więc wystarczy poszukać tego:
+        $pattern = '/public\s+static\s+\w+\s+test\s*\(([^)]*)\)/';
+        if (preg_match($pattern, $code, $matches)) {
+            $paramsInside = trim($matches[1]); // np. "int a, int b"
+            if ($paramsInside === '') {
+                return 0;
+            }
+            // Rozbij po przecinkach i zlicz
+            $params = explode(',', $paramsInside); // np. ["int a", " int b"]
+            return count($params);
+        }
+        return 0; 
+    }
+
+    protected function generateMainJava($testCases)
+    {
+        $mainCode = "public static void main(String[] args) {\n";
+
+        foreach ($testCases as $index => $test) {
+            $inputs = $test['input']; // np. [-5, 10]
+            // w Javie musisz zrzutować to na parametry int lub cokolwiek
+            // np. int a = -5; int b = 10; System.out.println( ... )
+
+            // zrobimy to dynamicznie
+            // "int param0 = -5; int param1 = 10;"
+            $lines = [];
+            foreach ($inputs as $i => $val) {
+                $lines[] = "int param{$i} = {$val};";
+            }
+            $mainCode .= "    " . implode(" ", $lines) . "\n";
+
+            // Wywołanie test i wyprintowanie w JSON:
+            // System.out.println( toJson( test(param0, param1) ) );
+            // Ponieważ nie mamy natywnie toJson, robimy uproszczenie:
+            // "System.out.println(\"\" + test(param0, param1));"
+
+            $call = "test(";
+            for ($i = 0; $i < count($inputs); $i++) {
+                $call .= "param{$i}";
+                if ($i < count($inputs) - 1) {
+                    $call .= ", ";
+                }
+            }
+            $call .= ")";
+
+            // Wersja uproszczona: print w formie JSON np. "System.out.println(\"[\"+test(param0, param1)+\"]\");"
+            // lepiej -> "System.out.println(test(param0, param1));"
+            // i w "compareResults" robisz json_decode linii
+
+            $mainCode .= "    System.out.println( $call );\n";
+        }
+
+        $mainCode .= "}\n"; // koniec main
+        return $mainCode;
     }
 
     /**
@@ -383,6 +710,89 @@ class QuizSolveController extends Controller
             }
         } else {
             unlink($codeFile);
+            return [
+                'output' => null,
+                'error' => 'Nie udało się uruchomić procesu Dockera.',
+            ];
+        }
+    }
+
+    protected function executeCodeWithDockerJava($code, $timeout = 15)
+    {
+        // 1. Tworzymy plik .java
+        $codeFile = tempnam(sys_get_temp_dir(), 'usercode_') . '.java';
+        file_put_contents($codeFile, $code);
+
+        // 2. Komenda Docker:
+        $command = sprintf(
+            'docker run --rm --net none --memory="64m" --cpus="0.5" -v %s:/app/Code.java openjdk:17 bash -c "cd /app && javac Code.java && java Code"',
+            escapeshellarg($codeFile)
+        );
+
+        Log::info('executeCodeWithDockerJava: command', ['command' => $command]);
+
+        $descriptorSpec = [
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = proc_open($command, $descriptorSpec, $pipes);
+
+        if (is_resource($process)) {
+            $startTime = time();
+            $output = '';
+            $errors = '';
+
+            while (!feof($pipes[1]) || !feof($pipes[2])) {
+                $output .= stream_get_contents($pipes[1]);
+                $errors .= stream_get_contents($pipes[2]);
+
+                if (time() - $startTime > $timeout) {
+                    proc_terminate($process);
+                    fclose($pipes[1]);
+                    fclose($pipes[2]);
+                    unlink($codeFile);
+
+                    Log::error('Przekroczono limit czasu', [
+                        'code' => $code,
+                        'output' => $output,
+                        'error' => $errors,
+                    ]);
+
+                    return [
+                        'output' => null,
+                        'error' => 'Przekroczono limit czasu dla testu (' . $timeout . ' sekund)',
+                    ];
+                }
+            }
+
+            fclose($pipes[1]);
+            fclose($pipes[2]);
+
+            $return_value = proc_close($process);
+            unlink($codeFile);
+
+            
+            Log::info('executeCodeWithDockerJava: finished', [
+                'output' => $output,
+                'error'  => $errors,
+                'return_value' => $return_value
+            ]);
+
+            if ($return_value !== 0) {
+                return [
+                    'output' => null,
+                    'error' => trim($errors),
+                ];
+            } else {
+                return [
+                    'output' => trim($output),
+                    'error' => null,
+                ];
+            }
+        } else {
+            unlink($codeFile);
+            Log::error('executeCodeWithDockerJava: cannot open process');
             return [
                 'output' => null,
                 'error' => 'Nie udało się uruchomić procesu Dockera.',

@@ -16,6 +16,7 @@ class QuizVersion extends Model
         'passing_score',
         'passing_percentage',
         'time_limit',
+        'is_draft',
     ];
 
     public function quiz()

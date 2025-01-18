@@ -9,7 +9,7 @@ class VersionedAnswer extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['versioned_question_id', 'text', 'is_correct', 'expected_code'];
+    protected $fillable = ['versioned_question_id', 'text', 'is_correct', 'expected_code', 'language'];
 
     public function question()
     {

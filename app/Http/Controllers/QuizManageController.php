@@ -23,23 +23,46 @@ class QuizManageController extends Controller
      */
     public function edit($id)
     {
-        $quiz = Quiz::with(['questions.answers', 'groups'])->findOrFail($id);
+        $quiz = Quiz::with('groups')->findOrFail($id);
     
         if ($quiz->user_id !== Auth::id()) {
             abort(403, 'Nie masz uprawnień do edycji tego quizu.');
         }
-
+    
+        // 1. Szukamy wersji roboczej (is_draft=1).
+        $draftVersion = $quiz->quizVersions()
+            ->where('is_draft', true)
+            ->first();
+    
+        $questions = collect();
+    
+        if ($draftVersion) {
+            // Jeśli jest wersja robocza, to właśnie ją pokażemy w edycji
+            $questions = $draftVersion->versionedQuestions()->with('answers')->get();
+        } else {
+            // Jeśli nie ma roboczej → pokazujemy ostatnią finalną
+            $latestVersion = $quiz->quizVersions()
+                ->where('is_draft', false)
+                ->orderByDesc('version_number')
+                ->first();
+    
+            if ($latestVersion) {
+                $questions = $latestVersion->versionedQuestions()->with('answers')->get();
+            }
+        }
+    
         $userGroups = Auth::user()->groups;
         $userAttempts = $quiz->userAttempts()->with('user')->get();
     
         return view('quizzes.manage', [
-            'quiz' => $quiz,
-            'questions' => $quiz->questions,
+            'quiz'       => $quiz,
+            'questions'  => $questions,
             'userGroups' => $userGroups,
             'userAttempts' => $userAttempts->unique('user_id'),
         ]);
     }
-
+    
+    
     /**
      * Zapisuje cały quiz wraz z pytaniami, odpowiedziami i przypisanymi grupami.
      * Po zapisaniu quizu dezaktywuje go, a gdy quiz jest aktywowany, tworzy nową wersję.
@@ -50,13 +73,13 @@ class QuizManageController extends Controller
      */
     public function saveAll(Request $request, $quizId)
     {
-        $quiz = Quiz::with('questions.answers')->findOrFail($quizId);
-
+        $quiz = Quiz::findOrFail($quizId);
+    
         // Sprawdzenie, czy użytkownik jest właścicielem quizu
         if ($quiz->user_id !== Auth::id()) {
             return response()->json(['message' => 'Nie masz uprawnień do edycji tego quizu.'], 403);
         }
-
+    
         // Walidacja danych wejściowych
         $validatedData = $request->validate([
             'title' => 'required|string',
@@ -70,137 +93,168 @@ class QuizManageController extends Controller
             'groups' => 'nullable|array',
             'groups.*' => 'exists:groups,id',
             'questions' => 'required|array|min:1',
-            'questions.*.id' => 'nullable|exists:questions,id',
+            'questions.*.id' => 'nullable|exists:versioned_questions,id',
             'questions.*.question_text' => 'required|string',
             'questions.*.type' => 'required|in:open,single_choice,multiple_choice',
             'questions.*.expected_code' => 'nullable|string',
+            'questions.*.language' => 'nullable|in:php,java',
             'questions.*.points' => 'required|integer|min:1',
             'questions.*.points_type' => 'nullable|in:full,partial',
             'questions.*.answers' => 'nullable|array',
             'questions.*.answers.*.text' => 'required|string',
             'questions.*.answers.*.is_correct' => 'required|boolean',
         ]);
-
-        // Aktualizacja quizu
-        $quiz->title = $validatedData['title'];
-        $quiz->is_public = $validatedData['is_public'] ?? false;
+    
+        // Aktualizacja quizu (podstawowe pola)
+        $quiz->title             = $validatedData['title'];
+        $quiz->is_public         = $validatedData['is_public'] ?? false;
         $quiz->multiple_attempts = $validatedData['multiple_attempts'] ?? false;
-
-        // Ponieważ pola passing_* i time_limit są teraz w quiz_versions, przechowujemy je tymczasowo w zmiennych
+        $quiz->is_active         = false; // Dezaktywuj quiz po zmianach
+        $quiz->save();
+    
+        // Pola passing_* i time_limit – do zmiennych (potem użyjemy przy aktywacji)
         $passingCriteria = [
             'has_passing_criteria' => $validatedData['has_passing_criteria'] ?? false,
-            'passing_score' => $validatedData['passing_score'] ?? null,
-            'passing_percentage' => $validatedData['passing_percentage'] ?? null,
+            'passing_score'        => $validatedData['passing_score'] ?? null,
+            'passing_percentage'   => $validatedData['passing_percentage'] ?? null,
         ];
-
         $timeLimit = $validatedData['has_time_limit'] ? $validatedData['time_limit'] : null;
-
-        $quiz->is_active = false; // Dezaktywuj quiz po zmianach
-        $quiz->save();
-
-        // Aktualizacja przypisanych grup (jeśli quiz nie jest publiczny)
+    
+        // Aktualizacja przypisanych grup
         if (!$quiz->is_public && isset($validatedData['groups'])) {
-            // Sprawdź, czy wszystkie wybrane grupy należą do użytkownika
             $userGroupIds = Auth::user()->groups->pluck('id')->toArray();
             $selectedGroupIds = $validatedData['groups'];
-
+    
             foreach ($selectedGroupIds as $groupId) {
                 if (!in_array($groupId, $userGroupIds)) {
-                    return response()->json(['message' => 'Nie masz uprawnień do przypisania quizu do wybranych grup.'], 403);
+                    return response()->json([
+                        'message' => 'Nie masz uprawnień do przypisania quizu do wybranych grup.'
+                    ], 403);
                 }
             }
-
-            // Synchronizacja grup
             $quiz->groups()->sync($selectedGroupIds);
         } else {
-            // Odłącz wszystkie grupy, jeśli quiz jest publiczny lub nie wybrano żadnych grup
             $quiz->groups()->detach();
         }
-
+    
+        // Znajdź lub utwórz "wersję roboczą" (draft)
+        // 1) Szukamy is_draft=1
+        $draftVersion = QuizVersion::where('quiz_id', $quiz->id)
+            ->where('is_draft', true)
+            ->first();
+    
+        if (!$draftVersion) {
+            // 2) Jeśli nie istnieje → tworzymy nową wersję z numerem = max(finalnych) + 1
+            $latestFinal = QuizVersion::where('quiz_id', $quiz->id)
+                ->where('is_draft', false)
+                ->max('version_number');
+            $latestFinal = $latestFinal ?: 0;
+    
+            $draftVersion = QuizVersion::create([
+                'quiz_id'              => $quiz->id,
+                'version_number'       => $latestFinal + 1, // nowy numer
+                'is_draft'             => true,
+                // Ustawiamy parametry testu
+                'has_passing_criteria' => $passingCriteria['has_passing_criteria'],
+                'passing_score'        => $passingCriteria['passing_score'],
+                'passing_percentage'   => $passingCriteria['passing_percentage'],
+                'time_limit'           => $timeLimit,
+            ]);
+        } else {
+            // Zaktualizuj passing_* i time_limit w istniejącej wersji roboczej
+            $draftVersion->update([
+                'has_passing_criteria' => $passingCriteria['has_passing_criteria'],
+                'passing_score'        => $passingCriteria['passing_score'],
+                'passing_percentage'   => $passingCriteria['passing_percentage'],
+                'time_limit'           => $timeLimit,
+            ]);
+        }
+    
+        // Przetwarzanie pytań
         $updatedQuestions = [];
-
+    
         foreach ($validatedData['questions'] as $questionData) {
-            // Dodatkowa walidacja dla pytań zamkniętych
+            // Sprawdzenie pytań zamkniętych
             if (in_array($questionData['type'], ['single_choice', 'multiple_choice'])) {
                 if (empty($questionData['answers']) || !is_array($questionData['answers'])) {
-                    return response()->json(['message' => 'Pytania zamknięte muszą mieć odpowiedzi.'], 422);
+                    return response()->json([
+                        'message' => 'Pytania zamknięte muszą mieć odpowiedzi.'
+                    ], 422);
                 }
-
                 $correctAnswers = collect($questionData['answers'])->where('is_correct', true);
                 if ($correctAnswers->count() < 1) {
-                    return response()->json(['message' => 'Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna w pytaniu: ' . strip_tags($questionData['question_text'])], 422);
+                    return response()->json([
+                        'message' => 'Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna w pytaniu: ' 
+                                     . strip_tags($questionData['question_text'])
+                    ], 422);
                 }
             }
-
-            // Aktualizacja lub tworzenie nowego pytania
+    
+            // Znajdź lub utwórz VersionedQuestion w tej wersji roboczej
+            $versionedQuestion = null;
             if (!empty($questionData['id'])) {
-                $question = Question::findOrFail($questionData['id']);
-            } else {
-                $question = new Question();
-                $question->quiz_id = $quiz->id;
+                // Tylko, jeśli to ID faktycznie należy do "draftVersion"
+                $versionedQuestion = VersionedQuestion::where('id', $questionData['id'])
+                    ->where('quiz_version_id', $draftVersion->id)
+                    ->first();
             }
-
-            $question->question_text = $questionData['question_text'];
-            $question->type = $questionData['type'];
-            $question->points = $questionData['points'];
-
-            // Ustawienie points_type dla pytań wielokrotnego wyboru
-            if ($questionData['type'] === 'multiple_choice') {
-                $question->points_type = $questionData['points_type'] ?? 'full';
-            } else {
-                $question->points_type = null;
+    
+            if (!$versionedQuestion) {
+                $versionedQuestion = new VersionedQuestion();
+                $versionedQuestion->quiz_version_id = $draftVersion->id;
             }
-
-            $question->save();
-
-            // Usuń istniejące odpowiedzi
-            $question->answers()->delete();
-
+    
+            $versionedQuestion->question_text = $questionData['question_text'];
+            $versionedQuestion->type          = $questionData['type'];
+            $versionedQuestion->points        = $questionData['points'];
+            $versionedQuestion->points_type   = ($questionData['type'] === 'multiple_choice')
+                ? ($questionData['points_type'] ?? 'full')
+                : null;
+            $versionedQuestion->save();
+    
+            // Usuwamy stare odpowiedzi
+            $versionedQuestion->answers()->delete();
+    
+            // Dodajemy nowe
             if ($questionData['type'] === 'open') {
-                $answer = new Answer();
-                $answer->question_id = $question->id;
-                $answer->expected_code = $questionData['expected_code'] ?? null;
-                $answer->text = null;
-                $answer->is_correct = null;
-                $answer->save();
+                VersionedAnswer::create([
+                    'versioned_question_id' => $versionedQuestion->id,
+                    'expected_code' => $questionData['expected_code'] ?? null,
+                    'language'      => $questionData['language'] ?? 'php',
+                    'text'          => null,
+                    'is_correct'    => null,
+                ]);
             } else {
-                foreach ($questionData['answers'] as $answerData) {
-                    $answer = new Answer();
-                    $answer->question_id = $question->id;
-                    $answer->text = $answerData['text'];
-                    $answer->is_correct = $answerData['is_correct'];
-                    $answer->expected_code = null;
-                    $answer->save();
+                foreach ($questionData['answers'] as $ans) {
+                    VersionedAnswer::create([
+                        'versioned_question_id' => $versionedQuestion->id,
+                        'text'        => $ans['text'],
+                        'is_correct'  => $ans['is_correct'],
+                        'expected_code' => null,
+                        'language'    => null,
+                    ]);
                 }
             }
-
+    
             $updatedQuestions[] = [
-                'id' => $question->id,
+                'id'      => $versionedQuestion->id,
                 'temp_id' => $questionData['id'] ?? null,
-                'answers' => $question->answers->map(function ($answer) {
-                    return [
-                        'id' => $answer->id,
-                        'text' => $answer->text,
-                    ];
-                }),
             ];
         }
-
-        // Dezaktywacja quizu po wprowadzeniu zmian
-        $quiz->is_active = false;
-        $quiz->save();
-
-        // Przechowaj kryteria zdawalności i time_limit w sesji lub w innym miejscu, jeśli potrzebujesz ich podczas aktywacji
+    
+        // Zapisz w sesji passing_criteria i time_limit (przyda się w togglu)
         session([
             'passing_criteria' => $passingCriteria,
-            'time_limit' => $timeLimit,
+            'time_limit'       => $timeLimit,
         ]);
-
+    
         return response()->json([
-            'message' => 'Quiz i pytania zostały zapisane pomyślnie. Quiz został dezaktywowany ze względu na wprowadzone zmiany.',
+            'message' => 'Quiz i pytania zapisane w wersji roboczej. Quiz został dezaktywowany.',
             'updated_questions' => $updatedQuestions,
         ]);
     }
+    
+    
 
     /**
      * Aktualizacja podstawowych informacji o quizie.
@@ -256,88 +310,62 @@ class QuizManageController extends Controller
      * @param int $id
      * @return \Illuminate\Http\JsonResponse
      */
-public function toggleStatus($id)
-{
-    try {
-        $quiz = Quiz::with('questions.answers')->findOrFail($id);
-
-        // Sprawdzenie, czy użytkownik jest właścicielem quizu
-        if ($quiz->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Nie masz uprawnień do zmiany statusu tego quizu.'], 403);
-        }
-
-        $quiz->is_active = !$quiz->is_active;
-        $quiz->save();
-
-        if ($quiz->is_active) {
-            // Pobierz kryteria zdawalności i time_limit z sesji lub z innego miejsca
-            $passingCriteria = session('passing_criteria', [
-                'has_passing_criteria' => false,
-                'passing_score' => null,
-                'passing_percentage' => null,
-            ]);
-
-            $timeLimit = session('time_limit', null);
-
-            // Tworzenie nowej wersji quizu
-            $latestVersionNumber = QuizVersion::where('quiz_id', $quiz->id)->max('version_number');
-            $newVersionNumber = $latestVersionNumber ? $latestVersionNumber + 1 : 1;
-
-            $quizVersion = QuizVersion::create([
-                'quiz_id' => $quiz->id,
-                'version_number' => $newVersionNumber,
-                'has_passing_criteria' => $passingCriteria['has_passing_criteria'],
-                'passing_score' => $passingCriteria['passing_score'],
-                'passing_percentage' => $passingCriteria['passing_percentage'],
-                'time_limit' => $timeLimit,
-            ]);
-
-            // Kopiowanie pytań i odpowiedzi do tabel wersjonowanych
-            foreach ($quiz->questions as $question) {
-                $versionedQuestion = VersionedQuestion::create([
-                    'quiz_version_id' => $quizVersion->id,
-                    'question_text' => $question->question_text,
-                    'type' => $question->type,
-                    'points' => $question->points,
-                    'points_type' => $question->points_type,
-                ]);
-
-                if ($question->type === 'open') {
-                    $originalAnswer = $question->answers->first();
-                    VersionedAnswer::create([
-                        'versioned_question_id' => $versionedQuestion->id,
-                        'text' => null,
-                        'is_correct' => null,
-                        'expected_code' => $originalAnswer ? $originalAnswer->expected_code : null,
+    public function toggleStatus($id)
+    {
+        try {
+            $quiz = Quiz::with(['quizVersions'])->findOrFail($id);
+    
+            if ($quiz->user_id !== Auth::id()) {
+                return response()->json(['message' => 'Brak uprawnień.'], 403);
+            }
+    
+            $quiz->is_active = !$quiz->is_active;
+            $quiz->save();
+    
+            if ($quiz->is_active) {
+                // Quiz staje się aktywny → zamknij (zafinalizuj) wersję roboczą
+                $draftVersion = $quiz->quizVersions
+                    ->where('is_draft', true)
+                    ->first();
+    
+                if ($draftVersion) {
+                    // Ustaw is_draft=0
+                    $draftVersion->is_draft = false;
+    
+                    // (opcjonalnie) pobierz z session
+                    $passingCriteria = session('passing_criteria', [
+                        'has_passing_criteria' => false,
+                        'passing_score'       => null,
+                        'passing_percentage'  => null,
                     ]);
-                } else {
-                    foreach ($question->answers as $answer) {
-                        VersionedAnswer::create([
-                            'versioned_question_id' => $versionedQuestion->id,
-                            'text' => $answer->text,
-                            'is_correct' => $answer->is_correct,
-                            'expected_code' => null,
-                        ]);
-                    }
+                    $timeLimit = session('time_limit', null);
+    
+                    $draftVersion->has_passing_criteria = $passingCriteria['has_passing_criteria'];
+                    $draftVersion->passing_score        = $passingCriteria['passing_score'];
+                    $draftVersion->passing_percentage   = $passingCriteria['passing_percentage'];
+                    $draftVersion->time_limit           = $timeLimit;
+    
+                    $draftVersion->save();
+    
+                    // Możesz wyczyścić sesję:
+                    session()->forget('passing_criteria');
+                    session()->forget('time_limit');
                 }
             }
-
-            // Usuń kryteria zdawalności i time_limit z sesji po ich wykorzystaniu
-            session()->forget('passing_criteria');
-            session()->forget('time_limit');
+    
+            return response()->json([
+                'message' => 'Status quizu został zmieniony pomyślnie.',
+                'is_active' => $quiz->is_active,
+            ], 200);
+    
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Wystąpił błąd podczas zmiany statusu quizu.',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        return response()->json([
-            'message' => 'Status quizu został zmieniony pomyślnie.',
-            'is_active' => $quiz->is_active
-        ], 200);
-    } catch (\Exception $e) {
-        return response()->json([
-            'message' => 'Wystąpił błąd podczas zmiany statusu quizu.',
-            'error' => $e->getMessage()
-        ], 500);
     }
-}
+    
     
     /**
      * Tworzenie nowego pytania.
@@ -349,57 +377,94 @@ public function toggleStatus($id)
     public function storeQuestion(Request $request)
     {
         $validatedData = $request->validate([
-            'quiz_id' => 'required|exists:quizzes,id',
+            'quiz_id'       => 'required|exists:quizzes,id',
             'question_text' => 'required|string|max:500',
-            'type' => 'required|in:open,single_choice,multiple_choice',
+            'type'          => 'required|in:open,single_choice,multiple_choice',
             'expected_code' => 'nullable|string',
-            'points' => 'required|integer|min:1',
-            'points_type' => 'nullable|in:full,partial', // Dodane pole do walidacji
-            'answers' => 'nullable|array',
-            'answers.*.text' => 'required|string|max:500',
-            'answers.*.is_correct' => 'required|boolean',
+            'language'      => 'required_if:type,open|in:php,java',
+            'points'        => 'required|integer|min:1',
+            'points_type'   => 'nullable|in:full,partial',
+            'answers'       => 'nullable|array',
+            'answers.*.text'      => 'required|string|max:500',
+            'answers.*.is_correct'=> 'required|boolean',
         ]);
-
-        // Dodatkowa walidacja dla pytań zamkniętych
-        if (in_array($validatedData['type'], ['single_choice', 'multiple_choice'])) {
+    
+        // Znajdź quiz
+        $quiz = Quiz::findOrFail($validatedData['quiz_id']);
+        if ($quiz->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Brak uprawnień.'], 403);
+        }
+    
+        // Znajdź lub stwórz JEDYNĄ wersję roboczą
+        $draftVersion = QuizVersion::where('quiz_id', $quiz->id)
+            ->where('is_draft', true)
+            ->first();
+    
+        if (!$draftVersion) {
+            // Tworzymy nową wersję roboczą
+            $latestFinal = QuizVersion::where('quiz_id', $quiz->id)
+                ->where('is_draft', false)
+                ->max('version_number');
+            $latestFinal = $latestFinal ?: 0;
+    
+            $draftVersion = QuizVersion::create([
+                'quiz_id'        => $quiz->id,
+                'version_number' => $latestFinal + 1,
+                'is_draft'       => true,
+            ]);
+        }
+    
+        // Walidacja pytań zamkniętych
+        if (in_array($validatedData['type'], ['single_choice','multiple_choice'])) {
             if (empty($validatedData['answers']) || !is_array($validatedData['answers'])) {
-                return response()->json(['message' => 'Pytania zamknięte muszą mieć odpowiedzi.'], 422);
+                return response()->json([
+                    'message' => 'Pytania zamknięte muszą mieć odpowiedzi.'
+                ], 422);
             }
-
             $correctAnswers = collect($validatedData['answers'])->where('is_correct', true);
             if ($correctAnswers->count() < 1) {
-                return response()->json(['message' => 'Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.'], 422);
+                return response()->json([
+                    'message' => 'Przynajmniej jedna odpowiedź musi być poprawna.'
+                ], 422);
             }
         }
-
-        $question = Question::create([
-            'quiz_id' => $validatedData['quiz_id'],
-            'question_text' => $validatedData['question_text'],
-            'type' => $validatedData['type'],
-            'points' => $validatedData['points'],
-            'points_type' => $validatedData['type'] === 'multiple_choice' ? ($validatedData['points_type'] ?? 'full') : null, // Dodane pole
+    
+        // Tworzymy versionedQuestion w wersji roboczej
+        $versionedQuestion = VersionedQuestion::create([
+            'quiz_version_id' => $draftVersion->id,
+            'question_text'   => $validatedData['question_text'],
+            'type'            => $validatedData['type'],
+            'points'          => $validatedData['points'],
+            'points_type'     => ($validatedData['type'] === 'multiple_choice')
+                ? ($validatedData['points_type'] ?? 'full')
+                : null,
         ]);
-
+    
+        // Tworzymy versionedAnswers
         if ($validatedData['type'] === 'open') {
-            $answer = new Answer();
-            $answer->question_id = $question->id;
-            $answer->expected_code = $validatedData['expected_code'] ?? null;
-            $answer->text = null;
-            $answer->is_correct = null;
-            $answer->save();
+            VersionedAnswer::create([
+                'versioned_question_id' => $versionedQuestion->id,
+                'expected_code' => $validatedData['expected_code'] ?? null,
+                'language'      => $validatedData['language'] ?? 'php',
+                'text'          => null,
+                'is_correct'    => null,
+            ]);
         } else {
-            foreach ($validatedData['answers'] as $answerData) {
-                Answer::create([
-                    'question_id' => $question->id,
-                    'text' => $answerData['text'],
-                    'is_correct' => $answerData['is_correct'],
-                    'expected_code' => null,
+            foreach ($validatedData['answers'] as $ans) {
+                VersionedAnswer::create([
+                    'versioned_question_id' => $versionedQuestion->id,
+                    'text'        => $ans['text'],
+                    'is_correct'  => $ans['is_correct'],
                 ]);
             }
         }
-
-        return response()->json(['message' => 'Pytanie utworzone pomyślnie!', 'question_id' => $question->id]);
+    
+        return response()->json([
+            'message'     => 'Pytanie utworzone pomyślnie!',
+            'question_id' => $versionedQuestion->id,
+        ]);
     }
+    
 
     /**
      * Aktualizacja pytania.
@@ -411,66 +476,75 @@ public function toggleStatus($id)
      */
     public function updateQuestion(Request $request, $id)
     {
-        $question = Question::findOrFail($id);
-
-        // Sprawdź, czy użytkownik jest właścicielem quizu
-        if ($question->quiz->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Nie masz uprawnień do aktualizacji tego pytania.'], 403);
+        $versionedQuestion = VersionedQuestion::findOrFail($id);
+        $quizVersion = $versionedQuestion->quizVersion;
+        $quiz = $quizVersion->quiz;
+    
+        if ($quiz->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Brak uprawnień.'], 403);
         }
-
+    
+        // Dezaktywuj quiz
+        $quiz->is_active = false;
+        $quiz->save();
+    
         $validatedData = $request->validate([
-            'question_text' => 'required|string',
+            'question_text' => 'required|string|max:500',
             'type' => 'required|in:open,single_choice,multiple_choice',
-            'points' => 'required|integer|min:1', // Nowe pole dla punktów
-            'points_type' => 'nullable|in:full,partial', // Dodane pole do walidacji
+            'points' => 'required|integer|min:1',
+            'points_type' => 'nullable|in:full,partial',
             'expected_code' => 'nullable|string',
+            'language' => 'required_if:type,open|in:php,java',
             'answers' => 'nullable|array',
-            'answers.*.text' => 'required|string',
+            'answers.*.text' => 'required|string|max:500',
             'answers.*.is_correct' => 'required|boolean',
         ]);
-
-        // Dodatkowa walidacja dla pytań zamkniętych
+    
         if (in_array($validatedData['type'], ['single_choice', 'multiple_choice'])) {
             if (empty($validatedData['answers']) || !is_array($validatedData['answers'])) {
                 return response()->json(['message' => 'Pytania zamknięte muszą mieć odpowiedzi.'], 422);
             }
-
             $correctAnswers = collect($validatedData['answers'])->where('is_correct', true);
             if ($correctAnswers->count() < 1) {
-                return response()->json(['message' => 'Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.'], 422);
+                return response()->json(['message' => 'Przynajmniej jedna odpowiedź poprawna.'], 422);
             }
         }
-
-        $question->update([
+    
+        $versionedQuestion->update([
             'question_text' => $validatedData['question_text'],
-            'type' => $validatedData['type'],
-            'points' => $validatedData['points'], // Aktualizacja liczby punktów
-            'points_type' => $validatedData['type'] === 'multiple_choice' ? ($validatedData['points_type'] ?? 'full') : null, // Aktualizacja points_type
+            'type'          => $validatedData['type'],
+            'points'        => $validatedData['points'],
+            'points_type'   => ($validatedData['type'] === 'multiple_choice')
+                                ? ($validatedData['points_type'] ?? 'full')
+                                : null,
         ]);
-
-        // Usuń istniejące odpowiedzi
-        $question->answers()->delete();
-
+    
+        $versionedQuestion->answers()->delete();
+    
         if ($validatedData['type'] === 'open') {
-            $answer = new Answer();
-            $answer->question_id = $question->id;
-            $answer->expected_code = $validatedData['expected_code'] ?? null;
-            $answer->text = null;
-            $answer->is_correct = null;
-            $answer->save();
+            VersionedAnswer::create([
+                'versioned_question_id' => $versionedQuestion->id,
+                'expected_code' => $validatedData['expected_code'] ?? null,
+                'language'      => $validatedData['language'] ?? 'php',
+                'text'          => null,
+                'is_correct'    => null,
+            ]);
         } else {
-            foreach ($validatedData['answers'] as $answerData) {
-                Answer::create([
-                    'question_id' => $question->id,
-                    'text' => $answerData['text'],
-                    'is_correct' => $answerData['is_correct'],
+            foreach ($validatedData['answers'] as $ans) {
+                VersionedAnswer::create([
+                    'versioned_question_id' => $versionedQuestion->id,
+                    'text'       => $ans['text'],
+                    'is_correct' => $ans['is_correct'],
                     'expected_code' => null,
+                    'language'   => null,
                 ]);
             }
         }
-
+    
         return response()->json(['message' => 'Pytanie zaktualizowane pomyślnie!']);
     }
+    
+    
 
     /**
      * Usuwanie pytania.
@@ -480,21 +554,25 @@ public function toggleStatus($id)
      */
     public function deleteQuestion($id)
     {
-        $question = Question::findOrFail($id);
-
-        // Sprawdź, czy użytkownik jest właścicielem quizu
-        if ($question->quiz->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Nie masz uprawnień do usunięcia tego pytania.'], 403);
+        $versionedQuestion = VersionedQuestion::findOrFail($id);
+        $quizVersion = $versionedQuestion->quizVersion;
+        $quiz = $quizVersion->quiz;
+    
+        if ($quiz->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Brak uprawnień.'], 403);
         }
-
-        // Usuń powiązane odpowiedzi
-        $question->answers()->delete();
-
-        // Usuń pytanie
-        $question->delete();
-
+    
+        // Dezaktywuj quiz
+        $quiz->is_active = false;
+        $quiz->save();
+    
+        $versionedQuestion->answers()->delete();
+        $versionedQuestion->delete();
+    
         return response()->json(['message' => 'Pytanie zostało pomyślnie usunięte']);
     }
+    
+    
 
     /**
      * Usuwanie quizu wraz z pytaniami i odpowiedziami.

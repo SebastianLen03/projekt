@@ -14,6 +14,7 @@ class CreateAnswersTable extends Migration
             $table->string('text')->nullable(); // Używane dla pytań zamkniętych, null dla otwartych
             $table->boolean('is_correct')->nullable(); // null dla pytań otwartych
             $table->text('expected_code')->nullable(); // Używane dla pytań otwartych, null dla zamkniętych
+            $table->string('language', 50)->nullable();
             $table->timestamps();
         });
     }

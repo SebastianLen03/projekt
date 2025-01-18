@@ -14,6 +14,7 @@ class CreateVersionedAnswersTable extends Migration
             $table->string('text')->nullable();
             $table->boolean('is_correct')->nullable();
             $table->text('expected_code')->nullable();
+            $table->string('language', 50)->nullable();
             $table->timestamps();
         });
     }
