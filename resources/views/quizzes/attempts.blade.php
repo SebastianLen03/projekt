@@ -1,3 +1,4 @@
+{{-- resources/views/quizzes/attempts.blade.php --}}
 <x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">
@@ -5,48 +6,32 @@
         </h2>
     </x-slot>
 
-    <!-- Dodaj CodeMirror CSS i JS -->
     <head>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/monokai.min.css">
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
-        <!-- Dodaj wszystkie wymagane tryby języków -->
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/php/php.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/htmlmixed/htmlmixed.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/xml/xml.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/javascript/javascript.min.js"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
     </head>
 
-    <!-- Dodaj niestandardowe style dla efektu rozwijania -->
     <style>
-        .collapsible {
-            display: none;
-        }
-        .collapsible.expanded {
-            display: block;
-        }
-
-        .selected-answer {
-            background-color: #c6f6d5; /* zielone tło dla wybranych odpowiedzi */
-        }
-
-        .incorrect-answer {
-            background-color: #fed7d7; /* czerwone tło dla błędnych odpowiedzi */
-        }
-
-        /* Dodatkowy styl dla CodeMirror */
-        .CodeMirror {
-            line-height: 1.5;
-        }
+        .collapsible { display: none; }
+        .collapsible.expanded { display: block; }
+        .selected-answer { background-color: #c6f6d5; }
+        .incorrect-answer { background-color: #fed7d7; }
+        .CodeMirror { line-height: 1.5; }
     </style>
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-            <!-- Twoja zawartość tutaj -->
             <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                 <div class="p-6 bg-white border-b border-gray-200">
-                    <h1 class="text-2xl font-semibold text-gray-800 mb-6">Quiz: {!! $quiz->title !!}</h1>
+                    <h1 class="text-2xl font-semibold text-gray-800 mb-6">
+                        Quiz: {!! $quiz->title !!}
+                    </h1>
 
                     @if($userAttempts->isEmpty())
                         <p class="text-gray-700">Nie masz jeszcze podejść do tego quizu.</p>
@@ -57,36 +42,40 @@
                                 $questions = $quizVersion->versionedQuestions()->with('answers')->get();
                             @endphp
 
-                            <h2 class="text-xl font-semibold mb-4">Wersja Quizu: {{ $quizVersion->version_number }}</h2>
+                            <h2 class="text-xl font-semibold mb-4">
+                                Wersja Quizu: {{ $quizVersion->version_number }}
+                                @if($quizVersion->is_active)
+                                    (AKTYWNA)
+                                @elseif($quizVersion->is_draft)
+                                    (DRAFT)
+                                @else
+                                    (ARCHIWALNA)
+                                @endif
+                            </h2>
 
                             @foreach($attempts as $attempt)
                                 @php
                                     $userAnswers = $groupedUserAnswers->get($attempt->id, collect())->keyBy('versioned_question_id');
 
-                                    // Obliczenie całkowitej możliwej liczby punktów dla tego podejścia
                                     $totalPossiblePoints = 0;
                                     foreach ($questions as $question) {
                                         if ($question->type === 'multiple_choice' && $question->points_type === 'partial') {
-                                            $correctAnswersCount = $question->answers->where('is_correct', true)->count();
-                                            $questionTotalPoints = $correctAnswersCount * $question->points;
+                                            $correctCount = $question->answers->where('is_correct', true)->count();
+                                            $questionTotalPts = $correctCount * $question->points;
                                         } else {
-                                            $questionTotalPoints = $question->points;
+                                            $questionTotalPts = $question->points;
                                         }
-                                        $totalPossiblePoints += $questionTotalPoints;
+                                        $totalPossiblePoints += $questionTotalPts;
                                     }
 
-                                    // Obliczenie czasu trwania podejścia
                                     if ($attempt->started_at && $attempt->ended_at) {
                                         $durationInSeconds = $attempt->ended_at->timestamp - $attempt->started_at->timestamp;
-                                        if ($durationInSeconds < 0) {
-                                            $durationInSeconds = 0;
-                                        }
+                                        $durationInSeconds = max($durationInSeconds, 0);
                                         $durationFormatted = gmdate('H:i:s', $durationInSeconds);
                                     } else {
                                         $durationFormatted = 'Brak danych';
                                     }
 
-                                    // Obliczenie procentu zdobytych punktów
                                     $scorePercentage = ($totalPossiblePoints > 0) ? ($attempt->score / $totalPossiblePoints) * 100 : 0;
                                 @endphp
 
@@ -105,13 +94,20 @@
                                             </p>
                                         @endif
                                         <p><strong>Czas trwania podejścia:</strong> {{ $durationFormatted }}</p>
+
                                         @if ($quizVersion->has_passing_criteria)
+                                            @php
+                                                $passed = false;
+                                                if ($quizVersion->passing_score && $attempt->score >= $quizVersion->passing_score) {
+                                                    $passed = true;
+                                                } elseif ($quizVersion->passing_percentage && $scorePercentage >= $quizVersion->passing_percentage) {
+                                                    $passed = true;
+                                                }
+                                            @endphp
                                             <p class="mb-4">
                                                 <strong>Status zdawalności:</strong>
-                                                @if ($quizVersion->passing_score && $attempt->score >= $quizVersion->passing_score)
-                                                    <span class="text-green-600 font-bold">Zdane</span> (próg punktowy: {{ $quizVersion->passing_score }})
-                                                @elseif ($quizVersion->passing_percentage && $scorePercentage >= $quizVersion->passing_percentage)
-                                                    <span class="text-green-600 font-bold">Zdane</span> (próg procentowy: {{ $quizVersion->passing_percentage }}%)
+                                                @if($passed)
+                                                    <span class="text-green-600 font-bold">Zdane</span>
                                                 @else
                                                     <span class="text-red-600 font-bold">Nie zdane</span>
                                                 @endif
@@ -122,19 +118,16 @@
                                     </div>
 
                                     <div id="details-{{ $attempt->id }}" class="attempt-details collapsible">
-                                        <!-- Iteracja przez każde pytanie w wersji quizu -->
                                         @foreach($questions as $question)
                                             @php
                                                 $userAnswer = $userAnswers->get($question->id);
-                                                $questionScore = $userAnswer ? $userAnswer->score : 0;
-
-                                                // Obliczenie maksymalnej liczby punktów za pytanie
                                                 if ($question->type === 'multiple_choice' && $question->points_type === 'partial') {
-                                                    $correctAnswersCount = $question->answers->where('is_correct', true)->count();
-                                                    $totalQuestionPoints = $correctAnswersCount * $question->points;
+                                                    $correctCount = $question->answers->where('is_correct', true)->count();
+                                                    $totalQuestionPoints = $correctCount * $question->points;
                                                 } else {
                                                     $totalQuestionPoints = $question->points;
                                                 }
+                                                $questionScore = $userAnswer ? $userAnswer->score : 0;
                                             @endphp
 
                                             <div class="question mb-4">
@@ -143,7 +136,7 @@
                                                 @if($question->type === 'open')
                                                     <label class="block font-bold mb-2">Twoja odpowiedź:</label>
                                                     @if($userAnswer && !empty($userAnswer->open_answer))
-                                                        <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}" data-question-id="{{ $question->id }}" data-attempt-id="{{ $attempt->id }}"></div>
+                                                        <div class="code-output-container" data-code="{!! $userAnswer->open_answer !!}"></div>
                                                         @if($userAnswer->is_correct)
                                                             <span class="text-green-500 font-bold">(Poprawna odpowiedź!)</span>
                                                         @else
@@ -193,11 +186,11 @@
                                                     @endforeach
                                                 @endif
 
-                                                <!-- Wyświetlenie punktów uzyskanych za pytanie -->
-                                                <p class="mt-2"><strong>Punkty za to pytanie:</strong> {{ $questionScore }} / {{ $totalQuestionPoints }}</p>
+                                                <p class="mt-2">
+                                                    <strong>Punkty za to pytanie:</strong> {{ $questionScore }} / {{ $totalQuestionPoints }}
+                                                </p>
                                             </div>
                                         @endforeach
-
                                     </div>
                                 </div>
                             @endforeach
@@ -208,20 +201,15 @@
         </div>
     </div>
 
-    <!-- JavaScript do inicjalizacji CodeMirror -->
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             window.toggleDetails = function (id) {
                 const details = document.getElementById(id);
+                details.classList.toggle('expanded');
                 if (details.classList.contains('expanded')) {
-                    details.classList.remove('expanded');
-                } else {
-                    details.classList.add('expanded');
                     initializeCodeMirrors(details);
-                    // Dodaj opóźnienie aby odświeżyć CodeMirror po wyświetleniu
                     setTimeout(() => {
-                        const codeEditors = details.querySelectorAll('.CodeMirror');
-                        codeEditors.forEach(cmEl => cmEl.CodeMirror.refresh());
+                        details.querySelectorAll('.CodeMirror').forEach(cmEl => cmEl.CodeMirror.refresh());
                     }, 100);
                 }
             }
@@ -229,7 +217,7 @@
             function initializeCodeMirrors(parentElement) {
                 const codeContainers = parentElement.querySelectorAll('.code-output-container');
                 if (typeof CodeMirror !== 'undefined') {
-                    codeContainers.forEach(function (container) {
+                    codeContainers.forEach(container => {
                         if (!container.classList.contains('initialized')) {
                             const codeContent = container.getAttribute('data-code');
                             const textarea = document.createElement('textarea');
@@ -246,8 +234,6 @@
                             container.classList.add('initialized');
                         }
                     });
-                } else {
-                    console.error('CodeMirror nie jest zdefiniowany. Upewnij się, że biblioteka została poprawnie załadowana.');
                 }
             }
         });

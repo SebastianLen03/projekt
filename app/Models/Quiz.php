@@ -22,6 +22,10 @@ class Quiz extends Model
         'has_passing_criteria',
         'passing_score',
         'passing_percentage',
+        'has_time_limit',
+        'time_limit',
+        'is_active',
+        'is_draft',
     ];
 
     // Relacja z modelem User (zakładamy, że quiz jest przypisany do użytkownika, który go stworzył)

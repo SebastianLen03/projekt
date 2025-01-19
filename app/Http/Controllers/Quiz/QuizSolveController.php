@@ -22,50 +22,46 @@ class QuizSolveController extends Controller
         $userId = Auth::id();
         $quiz = Quiz::findOrFail($quizId);
 
-        // Sprawdzenie, czy quiz jest aktywny
-        if (!$quiz->is_active) {
-            return redirect()->route('user.dashboard')->with('message', 'Ten quiz nie jest aktywny.');
+        $activeVersion = QuizVersion::where('quiz_id', $quizId)
+            ->where('is_active', true)
+            ->first();
+    
+        if (!$activeVersion) {
+            return redirect()->route('user.dashboard')
+                ->with('message', 'Ten quiz nie jest aktywny (brak aktywnej wersji).');
         }
-
-        // Pobierz najnowszą wersję quizu
-        $quizVersion = QuizVersion::where('quiz_id', $quizId)->latest('version_number')->first();
-
-        if (!$quizVersion) {
-            return redirect()->route('user.dashboard')->with('message', 'Brak dostępnej wersji tego quizu.');
-        }
-
-        // Sprawdzenie liczby podejść użytkownika do konkretnej wersji quizu
+    
+        $quizVersion = $activeVersion;
+    
+        // Dalej bez zmian:
+        // Sprawdzenie liczby podejść...
         $userAttempt = UserAttempt::where('user_id', $userId)
             ->where('quiz_version_id', $quizVersion->id)
             ->latest()
             ->first();
-
+    
         if (!$quiz->multiple_attempts && $userAttempt) {
             return redirect()->route('user.dashboard')
                 ->with('message', 'Osiągnąłeś maksymalną liczbę podejść do tej wersji quizu.');
         }
-
-        // Pobranie ostatniego numeru podejścia do tej wersji quizu
+    
         $lastAttempt = UserAttempt::where('user_id', $userId)
             ->where('quiz_version_id', $quizVersion->id)
             ->latest('attempt_number')
             ->first();
-
+    
         $attemptNumber = $lastAttempt ? $lastAttempt->attempt_number + 1 : 1;
-
-        // Jeśli użytkownik może przystąpić do quizu, tworzymy nowe podejście
+    
         $userAttempt = UserAttempt::create([
             'user_id' => $userId,
             'quiz_version_id' => $quizVersion->id,
             'quiz_id' => $quizId,
             'attempt_number' => $attemptNumber,
-            'started_at' => now(), // Zapisujemy czas rozpoczęcia
+            'started_at' => now(),
         ]);
-
-        // Pobranie pytań i odpowiedzi z wersjonowanych tabel
+    
         $questions = $quizVersion->versionedQuestions()->with('answers')->get();
-
-        // Przekazanie quizu, wersji quizu, pytań oraz id podejścia do widoku
+    
         return view('quizzes.solve', [
             'quiz' => $quiz,
             'quizVersion' => $quizVersion,
@@ -73,6 +69,7 @@ class QuizSolveController extends Controller
             'userAttemptId' => $userAttempt->id,
         ]);
     }
+    
 
     // Zapisz odpowiedzi użytkownika
     // Zapisz odpowiedzi użytkownika
@@ -719,86 +716,124 @@ protected function userHasMainMethod($code)
 
     protected function executeCodeWithDockerJava($code, $timeout = 15)
     {
-        // 1. Tworzymy plik .java
-        $codeFile = tempnam(sys_get_temp_dir(), 'usercode_') . '.java';
-        file_put_contents($codeFile, $code);
-
-        // 2. Komenda Docker:
+        // Spróbuj znaleźć w kodzie nazwę klasy po 'public class ...'
+        $className = $this->findPublicClassName($code);
+    
+        if (!$className) {
+            // Brak publicznej klasy -> opakuj w "public class Code { ... }"
+            $code = "public class Code {\n" . $code . "\n}\n";
+            $className = "Code";
+        }
+    
+        // Stwórz plik tymczasowy .java
+        $tempFile = tempnam(sys_get_temp_dir(), 'usercode_');
+        $javaFile = $tempFile . '.java';
+    
+        // Zapisz kod do pliku
+        file_put_contents($javaFile, $code);
+    
+        // Przygotuj komendę do uruchomienia w Dockerze (javac, a potem java)
         $command = sprintf(
-            'docker run --rm --net none --memory="64m" --cpus="0.5" -v %s:/app/Code.java openjdk:17 bash -c "cd /app && javac Code.java && java Code"',
-            escapeshellarg($codeFile)
+            'docker run --rm --net none --memory="64m" --cpus="0.5" '
+            . '-v %s:/app/%s.java openjdk:17 '
+            . 'bash -c "cd /app && javac %s.java && java %s"',
+            escapeshellarg($javaFile),
+            escapeshellarg($className),
+            escapeshellarg($className),
+            escapeshellarg($className)
         );
-
+    
         Log::info('executeCodeWithDockerJava: command', ['command' => $command]);
-
+    
+        // Uruchamiamy proces i zbieramy output
         $descriptorSpec = [
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
+            1 => ['pipe', 'w'], // STDOUT
+            2 => ['pipe', 'w'], // STDERR
         ];
-
+    
         $process = proc_open($command, $descriptorSpec, $pipes);
-
+    
         if (is_resource($process)) {
             $startTime = time();
             $output = '';
             $errors = '';
-
+    
             while (!feof($pipes[1]) || !feof($pipes[2])) {
                 $output .= stream_get_contents($pipes[1]);
                 $errors .= stream_get_contents($pipes[2]);
-
+    
+                // Kontrola czasu
                 if (time() - $startTime > $timeout) {
                     proc_terminate($process);
                     fclose($pipes[1]);
                     fclose($pipes[2]);
-                    unlink($codeFile);
-
+                    unlink($javaFile);
+    
                     Log::error('Przekroczono limit czasu', [
                         'code' => $code,
                         'output' => $output,
                         'error' => $errors,
                     ]);
-
+    
                     return [
                         'output' => null,
                         'error' => 'Przekroczono limit czasu dla testu (' . $timeout . ' sekund)',
                     ];
                 }
             }
-
+    
             fclose($pipes[1]);
             fclose($pipes[2]);
-
+    
             $return_value = proc_close($process);
-            unlink($codeFile);
-
-            
+            unlink($javaFile);
+    
             Log::info('executeCodeWithDockerJava: finished', [
-                'output' => $output,
-                'error'  => $errors,
+                'output'       => $output,
+                'error'        => $errors,
                 'return_value' => $return_value
             ]);
-
+    
             if ($return_value !== 0) {
+                // Błąd kompilacji lub runtime
                 return [
                     'output' => null,
-                    'error' => trim($errors),
+                    'error'  => trim($errors),
                 ];
             } else {
+                // Sukces
                 return [
                     'output' => trim($output),
-                    'error' => null,
+                    'error'  => null,
                 ];
             }
         } else {
-            unlink($codeFile);
+            // Nie udało się nawet uruchomić Dockera
+            unlink($javaFile);
             Log::error('executeCodeWithDockerJava: cannot open process');
             return [
                 'output' => null,
-                'error' => 'Nie udało się uruchomić procesu Dockera.',
+                'error'  => 'Nie udało się uruchomić procesu Dockera.',
             ];
         }
     }
+
+    /**
+     * Szuka fragmentu "public class XYZ" w kodzie.
+     * Jeśli znajdzie - zwraca "XYZ".
+     * Jeśli w kodzie brak publicznej klasy, zwraca null.
+     *
+     * Uwaga: jeśli kod ma wiele publicznych klas, ta metoda zwróci pierwszą z brzegu,
+     * co i tak może zakończyć się błędem kompilacji. Użytkownik musi wtedy poprawić kod.
+     */
+    protected function findPublicClassName($code)
+    {
+        if (preg_match('/\bpublic\s+class\s+([A-Za-z_]\w*)/', $code, $matches)) {
+            return $matches[1];
+        }
+        return null;
+    }
+
 
     /**
      * Porównuje wyniki testów kodu użytkownika i oczekiwanego kodu.

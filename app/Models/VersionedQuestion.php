@@ -20,4 +20,9 @@ class VersionedQuestion extends Model
     {
         return $this->hasMany(VersionedAnswer::class);
     }
+
+    public function versionedAnswers()
+{
+    return $this->hasMany(VersionedAnswer::class, 'versioned_question_id', 'id');
+}
 }

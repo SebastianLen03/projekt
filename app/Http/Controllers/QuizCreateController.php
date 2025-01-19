@@ -21,7 +21,7 @@ class QuizCreateController extends Controller
             'available_to' => null,
         ]);
 
-        return view('quizzes.create', ['quizId' => $quiz->id]);
+        return view('quizzes.edit', ['quizId' => $quiz->id]);
     }
 
     public function store(Request $request)

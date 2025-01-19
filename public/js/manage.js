@@ -1,4 +1,5 @@
-""; // public/js/manage.js
+"use strict"; 
+// public/js/manage.js
 
 // Inicjalizacja edytorów po załadowaniu DOM
 document.addEventListener("DOMContentLoaded", function () {
@@ -44,7 +45,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 // Pobranie tokenu CSRF i identyfikatora quizu z obiektu window
 const csrfToken = window.csrfToken;
-const quizId = window.quizId;
+let quizId = window.quizId;
 
 function getTinyMCEContent(element) {
     // Sprawdzamy, czy element jest już zainicjalizowany przez tinymce
@@ -53,6 +54,10 @@ function getTinyMCEContent(element) {
     } else {
         return element.value;
     }
+}
+
+function createDraft(quizIdParam) {
+    quizId = quizIdParam;
 }
 
 async function saveQuiz() {
@@ -67,8 +72,7 @@ async function saveQuiz() {
 
     const passingType = document.getElementById("passing-type").value;
     const passingScore = document.getElementById("passing-score").value;
-    const passingPercentage =
-        document.getElementById("passing-percentage").value;
+    const passingPercentage = document.getElementById("passing-percentage").value;
 
     let hasPassingCriteria = false;
     if (passingType === "points" || passingType === "percentage") {
@@ -79,15 +83,35 @@ async function saveQuiz() {
     const timeLimit = document.getElementById("quiz-time-limit").value;
 
     try {
+        // Budujemy obiekt 'data' z danymi quizu i wersji
         let data = {
+            // Dane dla tabeli 'quizzes'
             title: quizName,
             is_public: isPublic,
             multiple_attempts: multipleAttempts,
+            //is_active: true, // Dodano to pole
+
+            // Dane dla tabeli 'quiz_versions'
             has_passing_criteria: hasPassingCriteria,
+            passing_score: passingType === "points" ? parseInt(passingScore) : null,
+            passing_percentage: passingType === "percentage" ? parseInt(passingPercentage) : null,
             has_time_limit: hasTimeLimit,
+            time_limit: hasTimeLimit ? parseInt(timeLimit) : null,
+
+            // Pytania
             questions: [],
         };
 
+        // Jeśli quiz nie jest publiczny, wstawiamy grupy
+        if (!isPublic) {
+            const selectedGroups = [];
+            document.querySelectorAll('input[name="groups[]"]:checked').forEach((checkbox) => {
+                selectedGroups.push(checkbox.value);
+            });
+            data.groups = selectedGroups;
+        }
+
+        // Poprawne rozróżnienie passingType (brak/points/percentage)
         if (passingType === "points") {
             data.passing_score = parseInt(passingScore);
             data.passing_percentage = null;
@@ -99,49 +123,33 @@ async function saveQuiz() {
             data.passing_percentage = null;
         }
 
+        // Obsługa limitu czasu
         if (hasTimeLimit) {
             data.time_limit = parseInt(timeLimit);
         } else {
             data.time_limit = null;
         }
 
-        if (!isPublic) {
-            const selectedGroups = [];
-            document
-                .querySelectorAll('input[name="groups[]"]:checked')
-                .forEach((checkbox) => {
-                    selectedGroups.push(checkbox.value);
-                });
-            data.groups = selectedGroups;
-        }
-
         // Zbieranie danych pytań
         const questionDivs = document.querySelectorAll(".question");
         for (const questionDiv of questionDivs) {
-            const questionTextElement =
-                questionDiv.querySelector(".question-text");
+            const questionTextElement = questionDiv.querySelector(".question-text");
             const questionText = getTinyMCEContent(questionTextElement).trim();
-            const questionType =
-                questionDiv.querySelector(".question-type").value;
+            const questionType = questionDiv.querySelector(".question-type").value;
 
             let questionPoints;
-            const pointsInput = questionDiv.querySelector(
-                ".question-points-input"
-            );
-            const pointsValueInput = questionDiv.querySelector(
-                ".points-value-input"
-            );
+            const pointsInput = questionDiv.querySelector(".question-points-input");
+            const pointsValueInput = questionDiv.querySelector(".points-value-input");
 
+            // Sprawdzamy, które pole punktów jest widoczne
             if (
                 pointsInput &&
-                pointsInput.closest(".question-points-div").style.display !==
-                    "none"
+                pointsInput.closest(".question-points-div").style.display !== "none"
             ) {
                 questionPoints = parseInt(pointsInput.value);
             } else if (
                 pointsValueInput &&
-                pointsValueInput.closest(".question-points-type-div").style
-                    .display !== "none"
+                pointsValueInput.closest(".question-points-type-div").style.display !== "none"
             ) {
                 questionPoints = parseInt(pointsValueInput.value);
             } else {
@@ -162,22 +170,21 @@ async function saveQuiz() {
             }
 
             let questionData = {
-                id: questionId,
                 question_text: questionText,
                 type: questionType,
                 points: questionPoints,
             };
-
-            if (questionType === "multiple_choice") {
-                const pointsTypeElement = questionDiv.querySelector(
-                    ".question-points-type"
-                );
-                questionData.points_type = pointsTypeElement
-                    ? pointsTypeElement.value
-                    : "full";
+            
+            if (questionId) {
+                questionData.id = questionId;
             }
 
-            // Jeżeli pytanie otwarte, pobieramy expected_code + language
+            if (questionType === "multiple_choice") {
+                const pointsTypeElement = questionDiv.querySelector(".question-points-type");
+                questionData.points_type = pointsTypeElement ? pointsTypeElement.value : "full";
+            }
+
+            // Pytanie otwarte => zbieramy expected_code + language
             if (questionType === "open") {
                 const codeTextarea = questionDiv.querySelector(".code-input");
                 const expectedCode = codeTextarea.CodeMirrorInstance
@@ -189,17 +196,16 @@ async function saveQuiz() {
                     return;
                 }
 
-                // Pobieramy też wartość selecta "open-question-language"
-                const languageSelect = questionDiv.querySelector(
-                    ".open-question-language"
-                );
+                // Pobieramy też język
+                const languageSelect = questionDiv.querySelector(".open-question-language");
                 const language = languageSelect ? languageSelect.value : "php";
 
                 questionData.expected_code = expectedCode;
                 questionData.language = language;
+
             } else {
-                const answerInputs =
-                    questionDiv.querySelectorAll(".answer-input");
+                // Pytanie zamknięte => zbieramy tablicę answers
+                const answerInputs = questionDiv.querySelectorAll(".answer-input");
                 if (answerInputs.length === 0) {
                     alert("Pytanie musi zawierać co najmniej jedną odpowiedź.");
                     return;
@@ -207,11 +213,9 @@ async function saveQuiz() {
                 const answers = [];
                 let hasCorrectAnswer = false;
                 for (const answerDiv of answerInputs) {
-                    const answerTextElement =
-                        answerDiv.querySelector(".answer-text");
+                    const answerTextElement = answerDiv.querySelector(".answer-text");
                     const text = getTinyMCEContent(answerTextElement).trim();
-                    const isCorrect =
-                        answerDiv.querySelector(".answer-correct").checked;
+                    const isCorrect = answerDiv.querySelector(".answer-correct").checked;
                     const answerId = answerDiv.dataset.answerId || null;
 
                     if (!text) {
@@ -232,9 +236,7 @@ async function saveQuiz() {
                     answers.push(answerData);
                 }
                 if (!hasCorrectAnswer) {
-                    alert(
-                        "Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna."
-                    );
+                    alert("Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.");
                     return;
                 }
                 questionData.answers = answers;
@@ -267,17 +269,11 @@ async function saveQuiz() {
         const responseData = await response.json();
         alert("Quiz i wszystkie pytania zostały zapisane pomyślnie.");
 
-        // Quiz staje się nieaktywny po zapisie
-        const quizStatusElement = document.getElementById("quiz-status");
-        quizStatusElement.innerText = "Nieaktywny";
-        quizStatusElement.classList.remove("text-green-600");
-        quizStatusElement.classList.add("text-red-600");
+        // Opcjonalnie: Przeładuj stronę, aby odświeżyć dane
+        location.reload();
     } catch (error) {
         console.error("Error:", error);
-        alert(
-            "Wystąpił błąd podczas zapisywania quizu lub pytań: " +
-                error.message
-        );
+        alert("Wystąpił błąd podczas zapisywania pytania: " + error.message);
     }
 }
 
@@ -287,11 +283,6 @@ function toggleTimeLimitField() {
     const timeLimitField = document.getElementById("time-limit-field");
     timeLimitField.style.display = enableTimeLimit ? "block" : "none";
 }
-
-document.addEventListener("DOMContentLoaded", function () {
-    toggleTimeLimitField();
-    togglePassingScoreFields();
-});
 
 function handlePublicCheckbox(checkbox) {
     const groupCheckboxes = document.querySelectorAll(
@@ -831,30 +822,6 @@ function updateRadioNames() {
             });
         }
     });
-}
-
-async function toggleQuizStatus() {
-    try {
-        const response = await fetch(`/quizzes/${quizId}/toggleStatus`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                "X-CSRF-TOKEN": csrfToken,
-            },
-        });
-        // ...
-        const responseData = await response.json();
-        alert(responseData.message);
-
-        const quizStatusElement = document.getElementById("quiz-status");
-        quizStatusElement.innerText = responseData.is_active ? "Aktywny" : "Nieaktywny";
-        quizStatusElement.classList.toggle("text-green-600", responseData.is_active);
-        quizStatusElement.classList.toggle("text-red-600", !responseData.is_active);
-    } catch (error) {
-        console.error("Error:", error);
-        alert("Błąd toggleQuizStatus: " + error.message);
-    }
 }
 
 // Funkcja przełącza wyświetlanie pól do ustawienia punktowego lub procentowego progu zdawalności
