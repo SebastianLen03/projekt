@@ -67,5 +67,4 @@ class UserDashboardController extends Controller
             'userAttempts' => $userAttempts, // Zaktualizowana zmienna do widoku
         ]);
     }
-    
 }

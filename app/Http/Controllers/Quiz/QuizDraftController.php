@@ -23,16 +23,12 @@ class QuizDraftController extends Controller
         // (Walidacja przeniesiona z poprzedniego kodu)
         $validated = $request->validate([
             'title'                => 'required|string|max:255',
-            'is_public'            => 'required|boolean',
-            'multiple_attempts'    => 'required|boolean',
             'has_passing_criteria' => 'required|boolean',
+            'passing_type'         => 'nullable|string|in:points,percentage',
             'has_time_limit'       => 'required|boolean',
             'passing_score'        => 'nullable|integer|min:1',
             'passing_percentage'   => 'nullable|integer|min:0|max:100',
             'time_limit'           => 'nullable|integer|min:1',
-
-            'groups'               => 'nullable|array',
-            'groups.*'             => 'exists:groups,id',
 
             'questions'                     => 'required|array',
             'questions.*.id'               => 'nullable|exists:versioned_questions,id',
@@ -63,15 +59,8 @@ class QuizDraftController extends Controller
 
         // Aktualizacja pól quizu
         $quiz->title             = $validated['title'];
-        $quiz->is_public         = $validated['is_public'];
-        $quiz->multiple_attempts = $validated['multiple_attempts'];
         // $quiz->is_active       – nie ustawiamy tutaj
 
-        if (!$quiz->is_public) {
-            $quiz->groups()->sync($validated['groups'] ?? []);
-        } else {
-            $quiz->groups()->detach();
-        }
         $quiz->save();
 
         // Znalezienie lub stworzenie draftu
@@ -233,5 +222,63 @@ class QuizDraftController extends Controller
         }
 
         return back()->with('message', 'Zapisano pełną wersję (nr '. $draftVersion->version_number .'). Utworzono nowy draft.');
+    }
+
+        public function updateAccess(Request $request, $quizId)
+    {
+        $quiz = Quiz::findOrFail($quizId);
+
+        // Sprawdź właściciela
+        if ($quiz->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Brak uprawnień.'], 403);
+        }
+
+        // Sprawdź, czy któraś wersja nie jest aktywna:
+        // (Założenie: nie można zmieniać, gdy jest wersja aktywna)
+        if ($quiz->quizVersions()->where('is_active', true)->exists()) {
+            return response()->json(['message' => 'Nie można zmieniać ustawień — istnieje aktywna wersja.'], 403);
+        }
+
+        // Walidacja: w zależności, co przesyłamy w body
+        $data = $request->validate([
+            'multiple_attempts' => 'sometimes|boolean',
+            'is_public'         => 'sometimes|boolean',
+            'group_id'          => 'sometimes|integer|exists:groups,id'
+        ]);
+
+        // 1) Zmiana multiple_attempts
+        if (array_key_exists('multiple_attempts', $data)) {
+            $quiz->multiple_attempts = $data['multiple_attempts'];
+            $quiz->save();
+            return response()->json(['message' => 'Ustawienie wielokrotnych podejść zostało zmienione.']);
+        }
+
+        // 2) Zmiana is_public
+        if (array_key_exists('is_public', $data)) {
+            $quiz->is_public = $data['is_public'];
+            $quiz->save();
+
+            // Jeśli quiz staje się publiczny -> odpinamy wszystkie grupy
+            if ($quiz->is_public) {
+                $quiz->groups()->detach();
+            }
+
+            return response()->json(['message' => 'Ustawienie publiczności quizu zostało zmienione.']);
+        }
+
+        // 3) Zmiana przynależności do grupy (toggle)
+        if (array_key_exists('group_id', $data)) {
+            $groupId = $data['group_id'];
+            // Sprawdź, czy quiz jest już przypięty do danej grupy
+            if ($quiz->groups->contains($groupId)) {
+                $quiz->groups()->detach($groupId);
+                return response()->json(['message' => 'Usunięto grupę z quizu.']);
+            } else {
+                $quiz->groups()->attach($groupId);
+                return response()->json(['message' => 'Dodano grupę do quizu.']);
+            }
+        }
+
+        return response()->json(['message' => 'Nie podano żadnych pól do zmiany.'], 400);
     }
 }

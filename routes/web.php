@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\Admin\AdminDashboardController;
 use App\Http\Controllers\User\UserDashboardController;
+use Illuminate\Support\Facades\Auth;
 
 // Nowe importy:
 use App\Http\Controllers\Quiz\QuizController;
@@ -35,17 +36,29 @@ Route::middleware('auth')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::get('/', function () {
-    return view('welcome');
-});
+     return view('layouts.welcome');
+ })->name('welcome');
 
 /*
 |--------------------------------------------------------------------------
 | User dashboard
 |--------------------------------------------------------------------------
 */
+
+Route::get('/', function () {
+     if (Auth::check()) {
+         // Jeśli użytkownik jest zalogowany, przekieruj na dashboard
+         return redirect()->route('user.dashboard');
+     }
+     // Jeśli użytkownik nie jest zalogowany, wyświetl widok "welcome"
+     return view('layouts/welcome');
+ })->name('welcome');
+
+
 Route::get('/user/dashboard', [UserDashboardController::class, 'index'])
     ->name('user.dashboard')
     ->middleware('auth');
+
 
 /*
 |--------------------------------------------------------------------------
@@ -54,11 +67,18 @@ Route::get('/user/dashboard', [UserDashboardController::class, 'index'])
 */
 Route::middleware('auth')->group(function () {
 
+     Route::put('/quiz/{quiz}/{attempt}/{question}/updateScore', [QuizAttemptController::class, 'updateScore'])
+     ->name('quiz.updateScore');
+
+
     Route::get('/quizzes/{quiz}/compareVersions', [QuizVersionController::class, 'compareVersions'])
           ->name('quizzes.compareVersions');
 
      Route::post('/quiz/{quiz}/{attempt}/{question}/updateScore', [QuizAttemptController::class, 'updateScore'])
           ->name('quiz.updateScore');
+
+          Route::patch('/quizzes/{quiz}/updateAccess', [QuizDraftController::class, 'updateAccess'])
+     ->name('quizzes.updateAccess');
 
     // *** Quiz CRUD ***
     Route::get('/quizzes', [QuizController::class, 'index'])->name('quizzes.index');
@@ -124,8 +144,30 @@ Route::middleware('auth')->group(function () {
 */
 Route::middleware('auth')->group(function () {
     Route::resource('groups', GroupController::class);
+    
+    // Wyszukiwanie użytkownika po e-mail (checkUser)
+    Route::post('/groups/checkUser', [GroupController::class, 'checkUser'])
+         ->name('groups.checkUser');
 
-    // ... (pozostałe trasy do Groups)
+    // Wysyłanie zaproszenia do grupy (sendInvitation)
+    Route::post('/groups/sendInvitation', [GroupController::class, 'sendInvitation'])
+         ->name('groups.sendInvitation');
+
+    // Akceptacja zaproszenia
+    Route::post('/groups/invitations/{invitationId}/accept', [GroupController::class, 'acceptInvitation'])
+         ->name('groups.invitations.accept');
+
+    // Odrzucenie zaproszenia
+    Route::post('/groups/invitations/{invitationId}/reject', [GroupController::class, 'rejectInvitation'])
+         ->name('groups.invitations.reject');
+
+    // Usunięcie konkretnego użytkownika z grupy
+    Route::delete('/groups/{group}/{user}', [GroupController::class, 'removeUserFromGroup'])
+         ->name('groups.removeUser');
+
+    // Nadanie/odebranie roli administratora
+    Route::patch('/groups/{group}/{user}/toggleAdmin', [GroupController::class, 'toggleAdminRole'])
+         ->name('groups.toggleAdmin');
 });
 
 /*

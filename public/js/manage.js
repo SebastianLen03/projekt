@@ -98,6 +98,8 @@ async function saveQuiz() {
             has_time_limit: hasTimeLimit,
             time_limit: hasTimeLimit ? parseInt(timeLimit) : null,
 
+            passing_type: passingType,
+
             // Pytania
             questions: [],
         };
@@ -844,3 +846,100 @@ function togglePointsField(selectElement) {
             "Punkty za każdą poprawną odpowiedź:";
     }
 }
+
+async function updateMultipleAttempts(checkbox) {
+    // Zweryfikuj, czy user na pewno chce zmienić
+    // (opcjonalnie) if (!confirm(...)) { ... }
+    const value = checkbox.checked ? 1 : 0;
+    try {
+        const resp = await fetch(`/quizzes/${quizId}/updateAccess`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": window.csrfToken,
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({ multiple_attempts: value })
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text);
+        }
+        const data = await resp.json();
+        alert(data.message);
+    } catch (err) {
+        alert("Błąd: " + err.message);
+        // Cofnij stan checkboxa
+        checkbox.checked = !checkbox.checked;
+    }
+}
+
+async function updatePublicQuiz(checkbox) {
+    const value = checkbox.checked ? 1 : 0;
+    try {
+        const resp = await fetch(`/quizzes/${quizId}/updateAccess`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": window.csrfToken,
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({ is_public: value })
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text);
+        }
+        const data = await resp.json();
+        alert(data.message);
+
+        // Jeśli quiz staje się publiczny, powinieneś
+        // odznaczyć i zablokować checkboxy grup (lub odwrotnie):
+        if (checkbox.checked) {
+            document.querySelectorAll('#group-checkboxes input[type="checkbox"]')
+                .forEach(cb => {
+                    if (cb !== checkbox) {
+                        cb.checked = false;
+                        cb.disabled = true;
+                    }
+                });
+        } else {
+            document.querySelectorAll('#group-checkboxes input[type="checkbox"]')
+                .forEach(cb => {
+                    if (cb !== checkbox) {
+                        cb.disabled = false;
+                    }
+                });
+        }
+    } catch (err) {
+        alert("Błąd: " + err.message);
+        // Cofnij stan
+        checkbox.checked = !checkbox.checked;
+    }
+}
+
+async function updateGroupSelection(checkbox, groupId) {
+    const addGroup = checkbox.checked;
+    try {
+        const resp = await fetch(`/quizzes/${quizId}/updateAccess`, {
+            method: "PATCH",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRF-TOKEN": window.csrfToken,
+                "Accept": "application/json"
+            },
+            body: JSON.stringify({ group_id: groupId })
+        });
+        if (!resp.ok) {
+            const text = await resp.text();
+            throw new Error(text);
+        }
+        const data = await resp.json();
+        alert(data.message);
+    } catch (err) {
+        alert("Błąd: " + err.message);
+        // Cofnij stan
+        checkbox.checked = !checkbox.checked;
+    }
+}
+

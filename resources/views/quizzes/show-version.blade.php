@@ -65,9 +65,15 @@
                     <p class="text-sm mb-2">Punktacja: {{ $vq->points }}</p>
 
                     @if($vq->type === 'open')
-                        @if($vq->expected_code)
+                        @php
+                            // Poprawne pobranie expected_code z versioned_answers
+                            $firstAnswer = $vq->answers->first(); 
+                            $expectedCode = $firstAnswer ? $firstAnswer->expected_code : null;
+                        @endphp
+                        @if($expectedCode)
                             <p class="text-sm font-bold mb-1">Oczekiwany kod:</p>
-                            <div class="code-output-container" data-code="{{ $vq->expected_code }}"></div>
+                            <!-- Użycie code-output-container, aby CodeMirror mógł zadziałać: -->
+                            <div class="code-output-container" data-code="{{ e($expectedCode) }}"></div>
                         @else
                             <p>(Pytanie otwarte, brak expected_code)</p>
                         @endif
@@ -92,46 +98,48 @@
         </div>
 
         <!-- 2) STATYSTYKI (WYKRESY) -->
-        <div class="bg-white p-6 mb-6 shadow-sm sm:rounded-lg">
-            <h2 class="text-xl font-semibold mb-4">Statystyki</h2>
-            <div class="flex flex-wrap gap-6">
-                <!-- Rozkład wyników w % -->
-                <div class="w-full sm:w-1/2 xl:w-1/3">
-                    <h3 class="font-bold mb-2">Rozkład wyników w %</h3>
-                    <canvas id="scoreDistributionChart"></canvas>
-                </div>
-
-                <!-- Najczęściej popełniane błędy -->
-                <div class="w-full sm:w-1/2 xl:w-1/3">
-                    <h3 class="font-bold mb-2">Najczęściej popełniane błędy</h3>
-                    <canvas id="commonMistakesChart"></canvas>
-                </div>
-
-                <!-- Najpopularniejsze błędne odpowiedzi -->
-                <div class="w-full sm:w-1/2 xl:w-1/3">
-                    <h3 class="font-bold mb-2">Najpopularniejsze błędne odpowiedzi</h3>
-                    <canvas id="wrongAnswersChart"></canvas>
-                </div>
-
-                <!-- Ewentualne inne wykresy: Ranking użytkowników, Korelacja, itp. -->
-                @if(!empty($userRankingData))
+        @if($userAttempts->isNotEmpty())
+            <div class="bg-white p-6 mb-6 shadow-sm sm:rounded-lg">
+                <h2 class="text-xl font-semibold mb-4">Statystyki</h2>
+                <div class="flex flex-wrap gap-6">
+                    <!-- Rozkład wyników w % -->
                     <div class="w-full sm:w-1/2 xl:w-1/3">
-                        <h3 class="font-bold mb-2">Ranking użytkowników</h3>
-                        <canvas id="userRankingChart"></canvas>
+                        <h3 class="font-bold mb-2">Rozkład wyników w %</h3>
+                        <canvas id="scoreDistributionChart"></canvas>
                     </div>
-                @endif
 
-                @if(!empty($timeVsScoreData))
+                    <!-- Najczęściej popełniane błędy -->
                     <div class="w-full sm:w-1/2 xl:w-1/3">
-                        <h3 class="font-bold mb-2">Korelacja (czas vs wynik)</h3>
-                        <canvas id="timeVsScoreChart"></canvas>
+                        <h3 class="font-bold mb-2">Najczęściej popełniane błędy</h3>
+                        <canvas id="commonMistakesChart"></canvas>
                     </div>
-                @endif
 
+                    <!-- Najpopularniejsze błędne odpowiedzi -->
+                    <div class="w-full sm:w-1/2 xl:w-1/3">
+                        <h3 class="font-bold mb-2">Najpopularniejsze błędne odpowiedzi</h3>
+                        <canvas id="wrongAnswersChart"></canvas>
+                    </div>
+
+                    <!-- Ewentualne inne wykresy: Ranking użytkowników, Korelacja, itp. -->
+                    @if(!empty($userRankingData))
+                        <div class="w-full sm:w-1/2 xl:w-1/3">
+                            <h3 class="font-bold mb-2">Ranking użytkowników</h3>
+                            <canvas id="userRankingChart"></canvas>
+                        </div>
+                    @endif
+
+                    @if(!empty($timeVsScoreData))
+                        <div class="w-full sm:w-1/2 xl:w-1/3">
+                            <h3 class="font-bold mb-2">Korelacja (czas vs wynik)</h3>
+                            <canvas id="timeVsScoreChart"></canvas>
+                        </div>
+                    @endif
+
+                </div>
             </div>
-        </div>
+        @endif
 
-        <!-- 3) PODEJŚCIA W TEJ WERSJI (z edycją punktów, o ile masz taką funkcjonalność) -->
+        <!-- 3) PODEJŚCIA W TEJ WERSJI -->
         <div class="bg-white p-6 shadow-sm sm:rounded-lg">
             <h2 class="text-xl font-semibold mb-4">Podejścia w tej wersji</h2>
             @if($userAttempts->isEmpty())
@@ -145,17 +153,26 @@
                     @php
                         $totalPossiblePoints=0;
                         foreach($questions as $q){
-                            $totalPossiblePoints += $q->points;
+                               if ($q->type === 'multiple_choice' && $q->points_type === 'partial') {
+                                // Załóżmy: 'points' oznacza ilość punktów za jedną poprawną odpowiedź
+                                $correctCount = $q->answers->where('is_correct', true)->count();
+                                $questionMaxPts = $correctCount * $q->points;
+                            } else {
+                                $questionMaxPts = $q->points;
+                            }
+                            $totalPossiblePoints += $questionMaxPts;
                         }
                         $scorePercentage=($totalPossiblePoints>0)
                             ? ($attempt->score/$totalPossiblePoints)*100
                             : 0;
 
-                        $durationFormatted = 'Brak danych';
-                        if($attempt->started_at && $attempt->ended_at){
-                            $sec = max($attempt->ended_at->diffInSeconds($attempt->started_at),0);
-                            $durationFormatted = gmdate('H:i:s',$sec);
-                        }
+                            $durationFormatted = 'Brak danych';
+                            if ($attempt->started_at && $attempt->ended_at) {
+                                // Zakładając, że started_at i ended_at to obiekty datetime (Carbon):
+                                $sec = $attempt->ended_at->timestamp - $attempt->started_at->timestamp;
+                                $sec = max($sec, 0);
+                                $durationFormatted = gmdate('H:i:s', $sec);
+                            }
 
                         // Czy zdane?
                         $passed=false;
@@ -198,15 +215,19 @@
                                 @php
                                     $ua = $userAnswersByQuestion->get($question->id);
                                     $questionScore = $ua ? $ua->score : 0;
+
+                                    if ($question->type === 'multiple_choice' && $question->points_type === 'partial') {
+                                        $correctCount = $question->answers->where('is_correct', true)->count();
+                                        $questionMaxPts = $correctCount * $question->points;
+                                    } else {
+                                        $questionMaxPts = $question->points;
+                                    }
                                 @endphp
                                 <div class="mb-3 p-2 border rounded">
-                                    <h5 class="font-semibold">{!! $question->question_text !!}</h5>
-                                    <p class="text-sm mb-2">
-                                        Punktacja (dla tego usera): {{ $questionScore }} / {{ $question->points }}
-                                    </p>
-
-                                    <!-- (Opcjonalnie) FORMULARZ EDYCJI PUNKTÓW -->
-                                    {{-- 
+                                <h5 class="font-semibold">{!! $question->question_text !!}</h5>
+                                <p class="text-sm mb-2">
+                                    Punktacja (dla tego usera): {{ $questionScore }} / {{ $questionMaxPts }}
+                                </p>                                            <!-- (Opcjonalnie) FORMULARZ EDYCJI PUNKTÓW -->
                                     <form action="{{ route('quiz.updateScore', [$quiz->id, $attempt->id, $question->id]) }}"
                                           method="POST" class="mb-2">
                                         @csrf
@@ -220,7 +241,6 @@
                                             Zapisz
                                         </button>
                                     </form>
-                                    --}}
 
                                     <!-- Wyświetlanie odpowiedzi usera -->
                                     @if($question->type==='open')
@@ -321,10 +341,11 @@
         }
 
         document.addEventListener('DOMContentLoaded', function(){
+            // Uruchom CodeMirror dla sekcji "Pytania dostępne w tej wersji" od razu:
+            initializeCodeMirrors(document);
 
             // *** WYKRES: Rozkład wyników w % ***
             let scoreDistData = @json($scoreDistData ?? []);
-            // np. { '0-20%':2, '20-40%':5, '40-60%':3, ... }
             let distLabels = Object.keys(scoreDistData);
             let distValues = Object.values(scoreDistData);
 
@@ -345,7 +366,6 @@
 
             // *** WYKRES: Najczęściej popełniane błędy ***
             let cmData = @json($commonMistakesData ?? []);
-            // np. [ {question_label:'Pytanie 1', error_rate:0.7}, ... ]
             let cmLabels = cmData.map(o => o.question_label);
             let cmValues = cmData.map(o => Math.round(o.error_rate * 100));
 
@@ -369,7 +389,6 @@
 
             // *** WYKRES: Najpopularniejsze błędne odpowiedzi (w %) ***
             let wrongData = @json($wrongAnswersData ?? []);
-            // np. [ {question_label:'Pytanie 2', percent_wrong:60}, ... ]
             let waLabels = wrongData.map(o => o.question_label);
             let waValues = wrongData.map(o => Math.round(o.percent_wrong));
 
@@ -394,7 +413,6 @@
             // *** WYKRES: Ranking użytkowników (jeśli istnieje $userRankingData) ***
             @if(!empty($userRankingData))
                 let urData = @json($userRankingData);
-                // np. [ {user_name:'Jan', total_score:150}, ... ]
                 let urLabels = urData.map(u => u.user_name);
                 let urValues = urData.map(u => u.total_score);
 
@@ -417,7 +435,6 @@
             // *** WYKRES: Korelacja (czas vs wynik) (jeśli istnieje $timeVsScoreData) ***
             @if(!empty($timeVsScoreData))
                 let tvData = @json($timeVsScoreData);
-                // np. [ {duration:120, score:15}, ... ]
                 let scatterPoints = tvData.map(obj => ({ x: obj.duration, y: obj.score }));
 
                 new Chart(document.getElementById('timeVsScoreChart'), {

@@ -1,3 +1,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.logo {
+    background: none; /* Brak tła */
+    display: block; /* Dla poprawnego wyświetlania w divach */
+    margin: 0 auto; /* Wyśrodkowanie */
+}

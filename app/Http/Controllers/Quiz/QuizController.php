@@ -54,7 +54,7 @@ class QuizController extends Controller
         // 1) Stwórz nowy quiz w bazie
         $quiz = Quiz::create([
             'user_id'          => Auth::id(),
-            'title'            => 'Nowy Quiz (roboczy)', // tytuł domyślny
+            'title'            => 'Nowy Quiz', // tytuł domyślny
             'is_public'        => false,
             'multiple_attempts'=> false,
         ]);
@@ -143,15 +143,6 @@ class QuizController extends Controller
             'userGroups'  => $userGroups,
             'userAttempts'=> $userAttempts->unique('user_id'),
         ]);
-    }
-
-    /**
-     * Update quizu (opcjonalne)
-     */
-    public function update(Request $request, $quizId)
-    {
-        // W Twoim projekcie używasz raczej saveAll() do zapisu.
-        // Możesz ten update pominąć albo użyć do zmiany nazwy quizu itp.
     }
 
     /**

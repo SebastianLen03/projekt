@@ -362,7 +362,12 @@ private function buildTimeVsScore($userAttempts)
 
     foreach ($userAttempts as $att) {
         if ($att->started_at && $att->ended_at) {
-            $sec = max($att->ended_at->diffInSeconds($att->started_at), 0);
+            $sec = 0;
+            if ($att->started_at && $att->ended_at) {
+                // Zamiast diffInSeconds, użyj timestamp
+                $sec = $att->ended_at->timestamp - $att->started_at->timestamp;
+                $sec = max($sec, 0);
+            }
             $timeVsScore[] = [
                 'duration' => $sec,
                 'score'    => $att->score,

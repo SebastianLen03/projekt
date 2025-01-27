@@ -136,4 +136,6 @@ class QuizAttemptController extends Controller
 
         return back()->with('message','Punktacja zaktualizowana.');
     }
+
+    
 }

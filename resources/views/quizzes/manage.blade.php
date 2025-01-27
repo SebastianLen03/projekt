@@ -186,6 +186,62 @@
             @else
                 <p class="text-gray-600">Brak zapisanych pełnych wersji.</p>
             @endif
+
+            <!-- Tuż pod tabelą wersji -->
+            @php
+            $anyActiveVersion = $versions->where('is_active', true)->count() > 0;
+            @endphp
+
+            <div class="mt-4 p-4 border border-gray-300 rounded">
+            <h3 class="text-lg font-semibold mb-2">Ustawienia dostępu do quizu</h3>
+
+            <!-- Checkbox: wielokrotne podejścia -->
+            <label class="block font-bold mb-2">Czy quiz można rozwiązać wiele razy?</label>
+            <div class="flex items-center mb-4">
+                <input type="checkbox"
+                    id="quiz-multiple-attempts"
+                    name="multiple_attempts"
+                    value="1"
+                    {{ $quiz->multiple_attempts ? 'checked' : '' }}
+                    {{ $anyActiveVersion ? 'disabled' : '' }}
+                    onchange="updateMultipleAttempts(this)">
+                <label for="quiz-multiple-attempts" class="ml-2">
+                    Tak, quiz może być rozwiązywany wiele razy.
+                </label>
+            </div>
+
+            <!-- Checkbox: publiczny quiz -->
+            <label class="block font-bold mb-2">Udostępnij quiz:</label>
+                <div id="group-checkboxes" class="mb-4">
+                    <!-- Publiczny? (wszyscy) -->
+                    <div class="flex items-center mb-2">
+                        <input type="checkbox"
+                            id="public_quiz"
+                            name="is_public"
+                            value="1"
+                            {{ $quiz->is_public ? 'checked' : '' }}
+                            {{ $anyActiveVersion ? 'disabled' : '' }}
+                            onchange="updatePublicQuiz(this)">
+                        <label for="public_quiz" class="ml-2">Wszyscy użytkownicy</label>
+                    </div>
+
+                    <!-- Grupy (tylko jeśli nie jest public i brak aktywnej wersji) -->
+                    @foreach ($userGroups as $group)
+                        <div class="flex items-center mb-2">
+                            <input type="checkbox"
+                                id="group_{{ $group->id }}"
+                                name="groups[]"
+                                value="{{ $group->id }}"
+                                {{ in_array($group->id, $quiz->groups->pluck('id')->toArray()) && !$quiz->is_public ? 'checked' : '' }}
+                                {{ $quiz->is_public || $anyActiveVersion ? 'disabled' : '' }}
+                                onchange="updateGroupSelection(this, '{{ $group->id }}')">
+                            <label for="group_{{ $group->id }}" class="ml-2">
+                                {{ $group->name }}
+                            </label>
+                        </div>
+                    @endforeach
+                </div>
+            </div>
         </div>
 
         <!-- 2. Sekcja EDYCJI QUIZU (DRAFT) -->
@@ -228,38 +284,6 @@
                 <input type="number" id="quiz-time-limit" name="time_limit"
                        value="{{ $timeLimitValue }}"
                        class="w-full mb-4 p-2 border border-gray-300 rounded" min="1">
-            </div>
-
-            <label class="block font-bold mb-2">Czy quiz można rozwiązać wiele razy?</label>
-            <div class="flex items-center mb-4">
-                <input type="checkbox" id="quiz-multiple-attempts" name="multiple_attempts"
-                       value="1" {{ $quiz->multiple_attempts ? 'checked' : '' }}>
-                <label for="quiz-multiple-attempts" class="ml-2">
-                    Tak, quiz może być rozwiązywany wiele razy.
-                </label>
-            </div>
-
-            <!-- Udostępnij quiz -->
-            <label class="block font-bold mb-2">Udostępnij quiz:</label>
-            <div id="group-checkboxes" class="mb-4">
-                <div class="flex items-center mb-2">
-                    <input type="checkbox" id="public_quiz" name="is_public" value="1"
-                           {{ $quiz->is_public ? 'checked' : '' }}
-                           onclick="handlePublicCheckbox(this)">
-                    <label for="public_quiz" class="ml-2">Wszyscy użytkownicy</label>
-                </div>
-                @foreach ($userGroups as $group)
-                    <div class="flex items-center mb-2">
-                        <input type="checkbox"
-                               id="group_{{ $group->id }}"
-                               name="groups[]"
-                               value="{{ $group->id }}"
-                               {{ in_array($group->id, $quiz->groups->pluck('id')->toArray()) && !$quiz->is_public ? 'checked' : '' }}>
-                        <label for="group_{{ $group->id }}" class="ml-2">
-                            {{ $group->name }}
-                        </label>
-                    </div>
-                @endforeach
             </div>
 
             <!-- Typ zdawalności -->

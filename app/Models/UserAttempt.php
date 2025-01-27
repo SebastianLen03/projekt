@@ -20,6 +20,8 @@ class UserAttempt extends Model
     'ended_at',
     ];
 
+    protected $table = 'user_attempts';
+
     protected $casts = [
         'started_at' => 'datetime',
         'ended_at' => 'datetime',

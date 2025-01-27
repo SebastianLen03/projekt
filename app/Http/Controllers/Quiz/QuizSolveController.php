@@ -33,7 +33,6 @@ class QuizSolveController extends Controller
     
         $quizVersion = $activeVersion;
     
-        // Dalej bez zmian:
         // Sprawdzenie liczby podejść...
         $userAttempt = UserAttempt::where('user_id', $userId)
             ->where('quiz_version_id', $quizVersion->id)
@@ -69,7 +68,6 @@ class QuizSolveController extends Controller
             'userAttemptId' => $userAttempt->id,
         ]);
     }
-    
 
     // Zapisz odpowiedzi użytkownika
     // Zapisz odpowiedzi użytkownika
@@ -98,7 +96,6 @@ class QuizSolveController extends Controller
         // Przetwarzanie odpowiedzi użytkownika
         foreach ($questionsInput as $questionId => $response) {
             $question = $questions->get($questionId);
-
             if (!$question) {
                 continue; // Pomijamy nieprawidłowe ID pytań
             }
@@ -134,10 +131,10 @@ class QuizSolveController extends Controller
                         'score' => $questionScore,
                     ]);
                 }
-            } else {
+            } 
+            else {
                 // Odpowiedzi zamknięte (single_choice, multiple_choice)
                 $answersInput = $response['answers'] ?? [];
-
                 $selectedAnswerIds = is_array($answersInput) ? $answersInput : [$answersInput];
 
                 // Upewnij się, że identyfikatory odpowiedzi są liczbami
@@ -148,25 +145,41 @@ class QuizSolveController extends Controller
 
                 if ($question->type === 'multiple_choice') {
                     if ($question->points_type === 'full') {
-                        // Pełne punkty tylko jeśli wszystkie poprawne odpowiedzi są wybrane i żadna niepoprawna
-                        $isCorrect = empty(array_diff($correctAnswerIds, $selectedAnswerIds)) && empty(array_diff($selectedAnswerIds, $correctAnswerIds));
-
-                        $questionScore = $isCorrect ? $question->points : 0;
-                    } elseif ($question->points_type === 'partial') {
-                        // Częściowe punkty za każdą poprawną odpowiedź
+                        // Pełne punkty tylko jeśli user zaznaczył wszystkie poprawne
+                        // i żadnej błędnej
+                        $allCorrect = (
+                            empty(array_diff($correctAnswerIds, $selectedAnswerIds)) 
+                            && empty(array_diff($selectedAnswerIds, $correctAnswerIds))
+                        );
+                        $questionScore = $allCorrect ? $question->points : 0;
+                    } 
+                    elseif ($question->points_type === 'partial') {
+                        // Dzielimy liczbę punktów przez liczbę poprawnych odpowiedzi
+                        $numberOfCorrect = count($correctAnswerIds);
                         $correctSelected = array_intersect($correctAnswerIds, $selectedAnswerIds);
                         $incorrectSelected = array_diff($selectedAnswerIds, $correctAnswerIds);
 
-                        $pointsPerCorrect = $question->points; // Punkty za każdą poprawną odpowiedź
-                        $questionScore = count($correctSelected) * $pointsPerCorrect;
+                        $pointsPerCorrect = 0;
+                        if ($numberOfCorrect > 0) {
+                            $pointsPerCorrect = $question->points / $numberOfCorrect;
+                        }
 
-                        // Opcjonalnie można odjąć punkty za błędne odpowiedzi
-                        // $penaltyPerIncorrect = 1;
-                        // $questionScore -= count($incorrectSelected) * $penaltyPerIncorrect;
+                        // Liczba faktycznie trafionych poprawnych
+                        $countUserCorrect = count($correctSelected);
 
-                        // Upewnij się, że wynik nie jest ujemny
+                        // Obliczamy sumę
+                        $questionScore = $countUserCorrect * $pointsPerCorrect;
+
+                        // (Opcjonalnie) jeśli chcemy dać 0 za zaznaczenie czegokolwiek złego:
+                        // if (count($incorrectSelected) > 0) {
+                        //     $questionScore = 0;
+                        // }
+
+                        // Upewniamy się, że nie schodzimy poniżej zera
                         $questionScore = max($questionScore, 0);
-                    } else {
+                    } 
+                    else {
+                        // inna ewentualna wartość points_type
                         $questionScore = 0;
                     }
 
@@ -180,12 +193,13 @@ class QuizSolveController extends Controller
                         'quiz_version_id' => $quizVersion->id,
                         'versioned_question_id' => $question->id,
                         'selected_answers' => implode(',', $selectedAnswerIds),
-                        'is_correct' => $questionScore > 0,
+                        'is_correct' => ($questionScore > 0),
                         'score' => $questionScore,
                     ]);
-                } else {
-                    // Pytanie jednokrotnego wyboru
-                    $selectedAnswerId = intval($selectedAnswerIds[0]);
+                } 
+                else {
+                    // Pytanie jednokrotnego wyboru (single_choice)
+                    $selectedAnswerId = intval($selectedAnswerIds[0] ?? 0);
                     $answer = $question->answers->find($selectedAnswerId);
 
                     if ($answer) {
@@ -212,37 +226,29 @@ class QuizSolveController extends Controller
         // Aktualizacja podejścia użytkownika z sumą punktów i czasem zakończenia
         $userAttempt->update([
             'score' => $totalPoints,
-            'ended_at' => now(), // Zapisujemy czas zakończenia
+            'ended_at' => now(), 
         ]);
 
-        // Przekierowanie na stronę wyników
+        // Przekierowanie na stronę wyników (lub do user attempts)
         return redirect()->route('quizzes.user_attempts', ['quizId' => $quizId])
             ->with('message', 'Twoje odpowiedzi zostały zapisane. Uzyskałeś ' . $totalPoints . ' punktów.');
     }
-    
-/**
- * Uruchamia testy kodu użytkownika w porównaniu do oczekiwanego kodu.
- * Teraz dla Javy rezygnujemy z rename i wstrzykiwania automatycznego test(...).
- */
-protected function runCodeTest($userCode, $expectedCode, $language = 'php')
-{
-    switch ($language) {
-        case 'php':
-            // Stary mechanizm rename i generowanie test(...) + testcases
-            return $this->runPhpTest($userCode, $expectedCode);
 
-        case 'java':
-            // Nowe podejście – user ma 100% kontroli nad metodami
-            return $this->runJavaTestNoRename($userCode, $expectedCode);
-
-        default:
-            return [
-                'is_correct' => false,
-                'comparisons' => [],
-                'error' => 'Unsupported language'
-            ];
+    protected function runCodeTest($userCode, $expectedCode, $language = 'php')
+    {
+        switch ($language) {
+            case 'php':
+                return $this->runPhpTest($userCode, $expectedCode);
+            case 'java':
+                return $this->runJavaTestNoRename($userCode, $expectedCode);
+            default:
+                return [
+                    'is_correct' => false,
+                    'comparisons' => [],
+                    'error' => 'Unsupported language'
+                ];
+        }
     }
-}
 
 /**
  * Wersja runJavaTest pozwalająca na wiele metod w Javie,
