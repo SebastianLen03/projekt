@@ -377,27 +377,6 @@ protected function compareResultsLineByLine($userResult, $expectedResult)
     ];
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     protected function runPhpTest($userCode, $expectedCode)
     {
         set_time_limit(120);
@@ -438,66 +417,6 @@ protected function compareResultsLineByLine($userResult, $expectedResult)
 
         return $this->compareResults($userResult, $expectedResult, $testCases);
     }
-
-    // protected function runJavaTest($userCode, $expectedCode)
-    // {
-    //     Log::info('runJavaTest: userCode (raw)', ['code' => $userCode]);
-    //     Log::info('runJavaTest: expectedCode (raw)', ['code' => $expectedCode]);
-    
-    //     // 1. Przygotuj (opakuj) userCode i expectedCode w klasę (o ile trzeba)
-    //     //    + ewentualnie wymuś nazwę "test(...)"
-    //     $userCode = $this->prepareJavaCode($userCode);
-    //     $expectedCode = $this->prepareJavaCode($expectedCode);
-    
-    //     Log::info('runJavaTest: userCode (prepared)', ['code' => $userCode]);
-    //     Log::info('runJavaTest: expectedCode (prepared)', ['code' => $expectedCode]);
-    
-    //     // 2. Określ liczbę parametrów, by generować testCases
-    //     $paramCount = $this->getFunctionParamCountJava($userCode);
-    //     $testCases = [];
-    //     for ($i = 0; $i < 10; $i++) {
-    //         $inputs = [];
-    //         for ($j = 0; $j < $paramCount; $j++) {
-    //             $inputs[] = rand(-30, 30);
-    //         }
-    //         $testCases[] = ['input' => $inputs];
-    //     }
-    
-    //     Log::info('runJavaTest: testCases', $testCases);
-    
-    //     // 3. Doklej main(...) TYLKO jeśli user code NIE zawiera main
-    //     $userHasMain = $this->userHasMainMethod($userCode); 
-    //     $codeToRunUser = $userCode;
-    //     if (!$userHasMain) {
-    //         // nie ma main → dodajemy
-    //         $codeToRunUser .= $this->generateMainJava($testCases);
-    //     }
-    
-    //     // to samo dla expectedCode
-    //     $expectedHasMain = $this->userHasMainMethod($expectedCode);
-    //     $codeToRunExpected = $expectedCode;
-    //     if (!$expectedHasMain) {
-    //         $codeToRunExpected .= $this->generateMainJava($testCases);
-    //     }
-    
-    //     Log::info('runJavaTest: codeToRunUser', ['code' => $codeToRunUser]);
-    //     Log::info('runJavaTest: codeToRunExpected', ['code' => $codeToRunExpected]);
-    
-    //     // 4. Wykonaj w Dockerze
-    //     $userResult = $this->executeCodeWithDockerJava($codeToRunUser);
-    //     $expectedResult = $this->executeCodeWithDockerJava($codeToRunExpected);
-    
-    //     Log::info('runJavaTest: userResult', $userResult);
-    //     Log::info('runJavaTest: expectedResult', $expectedResult);
-    
-    //     // 5. Porównaj
-    //     $comparison = $this->compareResults($userResult, $expectedResult, $testCases);
-    //     Log::info('runJavaTest: compareResults', $comparison);
-    
-    //     return $comparison;
-    // }
-    
-
     /**
  * Sprawdza, czy w kodzie Javy jest zdefiniowana metoda `public static void main(`.
  * Wystarczy proste wyszukiwanie substringu, choć można użyć regex.

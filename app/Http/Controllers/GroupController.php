@@ -94,7 +94,7 @@ class GroupController extends Controller
         $this->authorize('update', $group);
 
         $group->update($request->only(['name', 'description']));
-        return redirect()->route('groups.index')->with('message', 'Grupa została zaktualizowana.');
+        return back();
     }
 
     // Usuń grupę

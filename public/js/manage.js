@@ -22,7 +22,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     // -- Inicjalizacja CodeMirror dla istniejących .code-input
     document.querySelectorAll(".code-input").forEach(function (textarea) {
-        const editor = CodeMirror.fromTextArea(textarea, {
+        const editor = CodeMirror.fromTextArea(textarea, { 
             lineNumbers: true,
             mode: {
                 name: "php",
@@ -89,7 +89,6 @@ async function saveQuiz() {
             title: quizName,
             is_public: isPublic,
             multiple_attempts: multipleAttempts,
-            //is_active: true, // Dodano to pole
 
             // Dane dla tabeli 'quiz_versions'
             has_passing_criteria: hasPassingCriteria,
@@ -113,7 +112,7 @@ async function saveQuiz() {
             data.groups = selectedGroups;
         }
 
-        // Poprawne rozróżnienie passingType (brak/points/percentage)
+        // Poprawne rozróżnienie passingType
         if (passingType === "points") {
             data.passing_score = parseInt(passingScore);
             data.passing_percentage = null;
@@ -143,7 +142,6 @@ async function saveQuiz() {
             const pointsInput = questionDiv.querySelector(".question-points-input");
             const pointsValueInput = questionDiv.querySelector(".points-value-input");
 
-            // Sprawdzamy, które pole punktów jest widoczne
             if (
                 pointsInput &&
                 pointsInput.closest(".question-points-div").style.display !== "none"
@@ -176,7 +174,6 @@ async function saveQuiz() {
                 type: questionType,
                 points: questionPoints,
             };
-            
             if (questionId) {
                 questionData.id = questionId;
             }
@@ -197,14 +194,11 @@ async function saveQuiz() {
                     alert('Pole "Oczekiwany kod" nie może być puste.');
                     return;
                 }
-
-                // Pobieramy też język
                 const languageSelect = questionDiv.querySelector(".open-question-language");
                 const language = languageSelect ? languageSelect.value : "php";
 
                 questionData.expected_code = expectedCode;
                 questionData.language = language;
-
             } else {
                 // Pytanie zamknięte => zbieramy tablicę answers
                 const answerInputs = questionDiv.querySelectorAll(".answer-input");
@@ -218,7 +212,7 @@ async function saveQuiz() {
                     const answerTextElement = answerDiv.querySelector(".answer-text");
                     const text = getTinyMCEContent(answerTextElement).trim();
                     const isCorrect = answerDiv.querySelector(".answer-correct").checked;
-                    const answerId = answerDiv.dataset.answerId || null;
+                    const answerId = answerDiv.dataset.answerId;
 
                     if (!text) {
                         alert("Pola odpowiedzi nie mogą być puste.");
@@ -232,8 +226,8 @@ async function saveQuiz() {
                         text: text,
                         is_correct: isCorrect,
                     };
-                    if (answerId) {
-                        answerData.id = answerId;
+                    if (answerId && answerId !== "null") {
+                        answerData.id = parseInt(answerId, 10);
                     }
                     answers.push(answerData);
                 }
@@ -270,9 +264,7 @@ async function saveQuiz() {
 
         const responseData = await response.json();
         alert("Quiz i wszystkie pytania zostały zapisane pomyślnie.");
-
-        // Opcjonalnie: Przeładuj stronę, aby odświeżyć dane
-        location.reload();
+        location.reload(); // odświeżenie danych
     } catch (error) {
         console.error("Error:", error);
         alert("Wystąpił błąd podczas zapisywania pytania: " + error.message);
@@ -287,9 +279,7 @@ function toggleTimeLimitField() {
 }
 
 function handlePublicCheckbox(checkbox) {
-    const groupCheckboxes = document.querySelectorAll(
-        '#group-checkboxes input[name="groups[]"]'
-    );
+    const groupCheckboxes = document.querySelectorAll('#group-checkboxes input[name="groups[]"]');
     groupCheckboxes.forEach((cb) => {
         cb.disabled = checkbox.checked;
         if (checkbox.checked) {
@@ -315,8 +305,7 @@ async function saveQuestion(button) {
         points = parseInt(pointsInput.value);
     } else if (
         pointsValueInput &&
-        pointsValueInput.closest(".question-points-type-div").style.display !==
-            "none"
+        pointsValueInput.closest(".question-points-type-div").style.display !== "none"
     ) {
         points = parseInt(pointsValueInput.value);
     } else {
@@ -341,9 +330,7 @@ async function saveQuestion(button) {
     };
 
     if (questionType === "multiple_choice") {
-        const pointsTypeElement = questionDiv.querySelector(
-            ".question-points-type"
-        );
+        const pointsTypeElement = questionDiv.querySelector(".question-points-type");
         data.points_type = pointsTypeElement ? pointsTypeElement.value : "full";
     }
 
@@ -353,7 +340,6 @@ async function saveQuestion(button) {
     }
 
     if (questionType === "open") {
-        // Odczyt kodu i języka
         const codeTextarea = questionDiv.querySelector(".code-input");
         const expectedCode = codeTextarea.CodeMirrorInstance
             ? codeTextarea.CodeMirrorInstance.getValue().trim()
@@ -364,11 +350,7 @@ async function saveQuestion(button) {
             return;
         }
         data.expected_code = expectedCode;
-
-        // Odczyt języka
-        const languageSelect = questionDiv.querySelector(
-            ".open-question-language"
-        );
+        const languageSelect = questionDiv.querySelector(".open-question-language");
         const language = languageSelect ? languageSelect.value : "php";
         data.language = language;
     } else {
@@ -382,9 +364,8 @@ async function saveQuestion(button) {
         for (const answerDiv of answerInputs) {
             const answerTextElement = answerDiv.querySelector(".answer-text");
             const text = getTinyMCEContent(answerTextElement).trim();
-            const isCorrect =
-                answerDiv.querySelector(".answer-correct").checked;
-            const answerId = answerDiv.dataset.answerId || null;
+            const isCorrect = answerDiv.querySelector(".answer-correct").checked;
+            const answerId = answerDiv.dataset.answerId;
 
             if (!text) {
                 alert("Pola odpowiedzi nie mogą być puste.");
@@ -398,15 +379,13 @@ async function saveQuestion(button) {
                 text: text,
                 is_correct: isCorrect,
             };
-            if (answerId) {
-                answerData.id = answerId;
+            if (answerId && answerId !== "null") {
+                answerData.id = parseInt(answerId, 10);
             }
             answers.push(answerData);
         }
         if (!hasCorrectAnswer) {
-            alert(
-                "Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna."
-            );
+            alert("Przynajmniej jedna odpowiedź musi być zaznaczona jako poprawna.");
             return;
         }
         data.answers = answers;
@@ -497,7 +476,6 @@ function deleteQuestion(button) {
         },
     })
         .then((response) => {
-            // ...
             return response.json();
         })
         .then((data) => {
@@ -577,7 +555,7 @@ function addQuestion() {
         },
     });
 
-    // Wywołujemy toggleAnswerSection, aby ustawić pola w zależności od domyślnego typ pytania
+    // Wywołujemy toggleAnswerSection, aby ustawić pola w zależności od domyślnego typu pytania
     const selectElement = newQuestionDiv.querySelector(".question-type");
     toggleAnswerSection(selectElement);
 }
@@ -586,9 +564,7 @@ function toggleAnswerSection(selectElement) {
     const questionDiv = selectElement.closest(".question");
     const questionType = selectElement.value;
     const answersSection = questionDiv.querySelector(".answers-section");
-    const pointsTypeDiv = questionDiv.querySelector(
-        ".question-points-type-div"
-    );
+    const pointsTypeDiv = questionDiv.querySelector(".question-points-type-div");
     const pointsInputDiv = questionDiv.querySelector(".question-points-div");
 
     // Usunięcie poprzedniej konfiguracji tylko jeśli typ pytania się zmienił
@@ -597,8 +573,7 @@ function toggleAnswerSection(selectElement) {
         answersSection.innerHTML = "";
 
         // (Ostrożnie) usunięcie instancji CodeMirror, jeśli istnieje
-        const existingCodeTextarea =
-            answersSection.querySelector(".code-input");
+        const existingCodeTextarea = answersSection.querySelector(".code-input");
         if (existingCodeTextarea && existingCodeTextarea.CodeMirrorInstance) {
             existingCodeTextarea.CodeMirrorInstance.toTextArea();
         }
@@ -616,13 +591,9 @@ function toggleAnswerSection(selectElement) {
                 <textarea class="code-input w-full mb-4 p-2 border border-gray-300 rounded"></textarea>
             `;
 
-            // Znajdujemy textarea i language select:
             const codeTextarea = answersSection.querySelector(".code-input");
-            const languageSelect = answersSection.querySelector(
-                ".open-question-language"
-            );
+            const languageSelect = answersSection.querySelector(".open-question-language");
 
-            // Ustawiamy domyślny kod w zależności od opcji w <select> (tu default "php")
             let defaultCode = `<?php
 function test($a, $b) {
 
@@ -630,7 +601,6 @@ function test($a, $b) {
 
 }
 `;
-
             codeTextarea.value = defaultCode;
 
             // Inicjalizacja CodeMirror domyślnie w trybie PHP
@@ -641,17 +611,13 @@ function test($a, $b) {
                 tabSize: 2,
             });
             codeTextarea.CodeMirrorInstance = editor;
-        } else if (
-            questionType === "multiple_choice" ||
-            questionType === "single_choice"
-        ) {
+        } else if (questionType === "multiple_choice" || questionType === "single_choice") {
             // Dla pytań zamkniętych dodajemy przycisk 'Dodaj odpowiedź'
             answersSection.innerHTML = `
                 <button type="button" onclick="addAnswer(this)" class="bg-green-500 hover:bg-green-700 text-white font-bold py-1 px-2 rounded mt-2">Dodaj odpowiedź</button>
             `;
         }
 
-        // Zapamiętaj bieżący typ pytania
         questionDiv.dataset.previousQuestionType = questionType;
     }
 
@@ -677,28 +643,23 @@ function updateCodeMirrorMode(selectElement) {
         return;
     }
 
-    // Ustal nowy 'mode' dla CodeMirror:
     if (language === "java") {
         codeTextarea.CodeMirrorInstance.setOption("mode", "text/x-java");
     } else {
-        // default php
         codeTextarea.CodeMirrorInstance.setOption("mode", {
             name: "php",
             startOpen: true,
         });
     }
 
-    // Opcjonalnie wstaw minimalny szablon kodu, jeśli user nie wpisał własnego:
     let currentContent = codeTextarea.CodeMirrorInstance.getValue().trim();
     if (
         !currentContent ||
         currentContent.startsWith("<?php") ||
         currentContent.startsWith("public class Code")
     ) {
-        // Zakładamy, że mamy do czynienia z poprzednim szablonem, wstawiamy nowy
         let defaultCode;
         if (language === "java") {
-            // Przykład minimalnego Java:
             defaultCode = `public class Code {
 
    public static void main(String[] args) { 
@@ -706,7 +667,6 @@ function updateCodeMirrorMode(selectElement) {
 }
 `;
         } else {
-            // Domyślnie PHP:
             defaultCode = `<?php
 function test($a, $b) {
 
@@ -756,11 +716,14 @@ function removeAnswer(button) {
     const answerTextElement = answerDiv.querySelector(".answer-text");
     const answerId = answerDiv.dataset.answerId;
 
-    const editor = tinymce.editors.find(
-        (ed) => ed.targetElm === answerTextElement
-    );
-    if (editor) {
-        editor.remove();
+    // Dodane zabezpieczenie:
+    if (typeof tinymce !== "undefined" && tinymce && tinymce.editors) {
+        const editor = tinymce.editors.find(
+            (ed) => ed.targetElm === answerTextElement
+        );
+        if (editor) {
+            editor.remove();
+        }
     }
 
     if (answerId) {
@@ -783,9 +746,7 @@ function removeAnswer(button) {
                 }
                 if (!response.ok) {
                     return response.text().then((text) => {
-                        throw new Error(
-                            "Błąd: " + response.status + " " + text
-                        );
+                        throw new Error("Błąd: " + response.status + " " + text);
                     });
                 }
                 return response.json();
@@ -816,9 +777,7 @@ function updateRadioNames() {
         const questionId = questionDiv.dataset.questionId || `new_${index}`;
         const questionType = questionDiv.querySelector(".question-type").value;
         if (questionType === "single_choice") {
-            const answerCorrectInputs = questionDiv.querySelectorAll(
-                '.answer-correct[type="radio"]'
-            );
+            const answerCorrectInputs = questionDiv.querySelectorAll('.answer-correct[type="radio"]');
             answerCorrectInputs.forEach((input) => {
                 input.name = `correct_answer_${questionId}`;
             });
@@ -837,7 +796,9 @@ function togglePassingScoreFields() {
 
 function togglePointsField(selectElement) {
     const pointsType = selectElement.value;
-    const pointsValueDiv = selectElement.closest(".question-points-type-div").querySelector(".points-value-div");
+    const pointsValueDiv = selectElement
+        .closest(".question-points-type-div")
+        .querySelector(".points-value-div");
     if (pointsType === "full") {
         pointsValueDiv.querySelector(".points-label").innerText =
             "Punkty za wszystkie poprawne odpowiedzi:";
@@ -848,8 +809,6 @@ function togglePointsField(selectElement) {
 }
 
 async function updateMultipleAttempts(checkbox) {
-    // Zweryfikuj, czy user na pewno chce zmienić
-    // (opcjonalnie) if (!confirm(...)) { ... }
     const value = checkbox.checked ? 1 : 0;
     try {
         const resp = await fetch(`/quizzes/${quizId}/updateAccess`, {
@@ -857,9 +816,9 @@ async function updateMultipleAttempts(checkbox) {
             headers: {
                 "Content-Type": "application/json",
                 "X-CSRF-TOKEN": window.csrfToken,
-                "Accept": "application/json"
+                Accept: "application/json",
             },
-            body: JSON.stringify({ multiple_attempts: value })
+            body: JSON.stringify({ multiple_attempts: value }),
         });
         if (!resp.ok) {
             const text = await resp.text();
@@ -869,7 +828,6 @@ async function updateMultipleAttempts(checkbox) {
         alert(data.message);
     } catch (err) {
         alert("Błąd: " + err.message);
-        // Cofnij stan checkboxa
         checkbox.checked = !checkbox.checked;
     }
 }
@@ -882,9 +840,9 @@ async function updatePublicQuiz(checkbox) {
             headers: {
                 "Content-Type": "application/json",
                 "X-CSRF-TOKEN": window.csrfToken,
-                "Accept": "application/json"
+                Accept: "application/json",
             },
-            body: JSON.stringify({ is_public: value })
+            body: JSON.stringify({ is_public: value }),
         });
         if (!resp.ok) {
             const text = await resp.text();
@@ -893,19 +851,19 @@ async function updatePublicQuiz(checkbox) {
         const data = await resp.json();
         alert(data.message);
 
-        // Jeśli quiz staje się publiczny, powinieneś
-        // odznaczyć i zablokować checkboxy grup (lub odwrotnie):
         if (checkbox.checked) {
-            document.querySelectorAll('#group-checkboxes input[type="checkbox"]')
-                .forEach(cb => {
+            document
+                .querySelectorAll('#group-checkboxes input[type="checkbox"]')
+                .forEach((cb) => {
                     if (cb !== checkbox) {
                         cb.checked = false;
                         cb.disabled = true;
                     }
                 });
         } else {
-            document.querySelectorAll('#group-checkboxes input[type="checkbox"]')
-                .forEach(cb => {
+            document
+                .querySelectorAll('#group-checkboxes input[type="checkbox"]')
+                .forEach((cb) => {
                     if (cb !== checkbox) {
                         cb.disabled = false;
                     }
@@ -913,7 +871,6 @@ async function updatePublicQuiz(checkbox) {
         }
     } catch (err) {
         alert("Błąd: " + err.message);
-        // Cofnij stan
         checkbox.checked = !checkbox.checked;
     }
 }
@@ -926,9 +883,9 @@ async function updateGroupSelection(checkbox, groupId) {
             headers: {
                 "Content-Type": "application/json",
                 "X-CSRF-TOKEN": window.csrfToken,
-                "Accept": "application/json"
+                Accept: "application/json",
             },
-            body: JSON.stringify({ group_id: groupId })
+            body: JSON.stringify({ group_id: groupId }),
         });
         if (!resp.ok) {
             const text = await resp.text();
@@ -938,8 +895,6 @@ async function updateGroupSelection(checkbox, groupId) {
         alert(data.message);
     } catch (err) {
         alert("Błąd: " + err.message);
-        // Cofnij stan
         checkbox.checked = !checkbox.checked;
     }
 }
-

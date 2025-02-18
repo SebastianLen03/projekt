@@ -194,14 +194,33 @@ class QuizQuestionController extends Controller
     public function deleteAnswer($id)
     {
         $answer = VersionedAnswer::findOrFail($id);
-        $question = $answer->versionedQuestion;
-        $quiz = $question->quizVersion->quiz;
-
-        if ($quiz->user_id !== Auth::id()) {
-            return response()->json(['message' => 'Brak uprawnień.'], 403);
+        $question = $answer->Question;        
+    
+        // Sprawdzanie istnienia pytania i wersji
+        if (!$question) {
+            return response()->json(['message' => 'Brak pytania.'], 404);
         }
-
+    
+        // Pobierz wersję
+        $version = $question->quizVersion;
+        if (!$version) {
+            return response()->json(['message' => 'Brak wersji quizu.'], 404);
+        }
+    
+        // Czy to jest draft?
+        if (!$version->is_draft) {
+            return response()->json(['message' => 'Nie można usuwać odpowiedzi z ukończonej wersji quizu.'], 403);
+        }
+    
+        // Czy quiz należy do aktualnego użytkownika (jeśli Ci to potrzebne):
+        if ($version->quiz->user_id !== Auth::id()) {
+            return response()->json(['message' => 'Brak uprawnień do tego quizu.'], 403);
+        }
+    
         $answer->delete();
+    
         return response()->json(['message' => 'Odpowiedź została pomyślnie usunięta.']);
     }
+    
+    
 }

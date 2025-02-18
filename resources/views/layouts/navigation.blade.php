@@ -20,7 +20,7 @@
                     @else
                         <!-- Jeśli użytkownik nie jest adminem, przenosi na panel użytkownika -->
                         <x-nav-link :href="route('user.dashboard')" :active="request()->routeIs('user.dashboard')">
-                            {{ __('Dashboard') }}
+                            {{ __('Testy') }}
                         </x-nav-link>
                     @endif
 
@@ -88,7 +88,7 @@
             @else
                 <!-- Jeśli użytkownik nie jest adminem, przenosi na panel użytkownika -->
                 <x-responsive-nav-link :href="route('user.dashboard')" :active="request()->routeIs('user.dashboard')">
-                    {{ __('Dashboard') }}
+                    {{ __('Testy') }}
                 </x-responsive-nav-link>
             @endif
 

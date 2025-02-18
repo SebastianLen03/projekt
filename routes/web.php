@@ -180,6 +180,9 @@ Route::middleware('auth')->group(function () {
     Route::post('/admin/users/{id}', [AdminDashboardController::class, 'update'])->name('admin.users.update');
 });
 
+Route::get('/login', function () {
+     return redirect('/');
+ });
 /*
 |--------------------------------------------------------------------------
 | Auth

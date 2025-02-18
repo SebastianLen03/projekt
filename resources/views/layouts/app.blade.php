@@ -14,6 +14,18 @@
 
         <!-- Scripts -->
         @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+            <!-- CodeMirror CSS i JS -->
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/monokai.min.css" />
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+
+        <!-- Tryby CodeMirror -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/php/php.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
+
+        <!-- TinyMCE (bez defer, by wczytało się PRZED manage.js) -->
+        <script src="{{ asset('js/tinymce/tinymce.min.js') }}"></script>
     </head>
     <body class="font-sans antialiased bg-gray-200">
         {{-- <div class="min-h-screen bg-gray-100"> --}}

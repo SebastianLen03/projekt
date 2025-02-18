@@ -10,23 +10,19 @@ use App\Models\VersionedQuestion;
 use App\Models\UserAttempt;
 use App\Models\UserAnswer;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Traits\LoadsQuizTrait;
 
 class QuizAttemptController extends Controller
 {
+    use LoadsQuizTrait;
     /**
      * Resetowanie podejść użytkownika – dawniej w QuizManageController
      */
     public function resetAttempts(Request $request, $quizId)
     {
         $userId = $request->input('user_id');
+        $quiz = $this->loadUserQuiz($quizId);
 
-        $quiz = Quiz::findOrFail($quizId);
-        $user = Auth::user();
-        if ($quiz->user_id !== $user->id) {
-            return back()->withErrors(['error' => 'Brak uprawnień.']);
-        }
-
-        // Usuwamy attempty
         UserAttempt::where('user_id', $userId)
             ->where('quiz_id', $quizId)
             ->delete();
@@ -48,26 +44,15 @@ class QuizAttemptController extends Controller
      */
     public function resetVersionAttempts(Request $request, $quizId, $versionId)
     {
-        // Znajdź quiz
-        $quiz = Quiz::findOrFail($quizId);
-        // Sprawdź właściciela
-        $user = Auth::user();
-        if ($quiz->user_id !== $user->id) {
-            return back()->withErrors(['error' => 'Brak uprawnień do edycji quizu.']);
-        }
+        $quiz = $this->loadUserQuiz($quizId);
 
-        // Znajdź wersję
         $version = QuizVersion::where('quiz_id', $quiz->id)
             ->where('id', $versionId)
             ->where('is_draft', false)
             ->firstOrFail();
 
-        // Odczyt user_id (opcjonalny)
-        $userId = $request->input('user_id'); 
-        // user_id => reset tylko tego usera
-        // brak user_id => reset wszystkich userów
+        $userId = $request->input('user_id');
 
-        // Wylistuj attempty w tej wersji
         $attemptsQuery = UserAttempt::where('quiz_id', $quiz->id)
             ->where('quiz_version_id', $version->id);
 
@@ -78,22 +63,16 @@ class QuizAttemptController extends Controller
         $attempts = $attemptsQuery->get();
         $attemptIds = $attempts->pluck('id')->toArray();
 
-        // Skasuj userAnswers
         $questionIds = VersionedQuestion::where('quiz_version_id', $version->id)->pluck('id');
-        
-        // Gdy masz w user_answers klucz 'user_attempt_id' lub (user_id + versioned_question_id),
-        // dostosuj do własnej migracji:
+
         if ($userId) {
-            // Usuwamy userAnswers TYLKO tego usera w danej wersji
             UserAnswer::where('user_id', $userId)
                 ->whereIn('versioned_question_id', $questionIds)
                 ->delete();
         } else {
-            // Usuwamy userAnswers wszystkich w danej wersji
             UserAnswer::whereIn('versioned_question_id', $questionIds)->delete();
         }
 
-        // Na koniec usuwamy attempty
         $attemptsQuery->delete();
 
         if ($userId) {
@@ -108,34 +87,26 @@ class QuizAttemptController extends Controller
      */
     public function updateScore(Request $request, $quizId, $attemptId, $questionId)
     {
-        // Walidacja
         $validated = $request->validate([
-            'new_score'=>'required|numeric|min:0',
+            'new_score' => 'required|numeric|min:0',
         ]);
 
-        // Znajdź quiz i sprawdź, czy należy do aktualnego usera
-        $quiz = Quiz::where('id',$quizId)->where('user_id',Auth::id())->firstOrFail();
+        $quiz = $this->loadUserQuiz($quizId);
 
-        // Znajdź to podejście:
-        $attempt = UserAttempt::where('id',$attemptId)->where('quiz_id',$quizId)->firstOrFail();
+        $attempt = UserAttempt::where('id', $attemptId)->where('quiz_id', $quizId)->firstOrFail();
 
-        // Znajdź userAnswer do danego pytania
-        $userAnswer = UserAnswer::where('attempt_id',$attemptId)
-            ->where('versioned_question_id',$questionId)
+        $userAnswer = UserAnswer::where('attempt_id', $attemptId)
+            ->where('versioned_question_id', $questionId)
             ->firstOrFail();
 
-        // Ustaw nową punktację
         $newScore = $validated['new_score'];
         $userAnswer->score = $newScore;
         $userAnswer->save();
 
-        // Przelicz łączny wynik attemptu (sumowanie score ze wszystkich userAnswers)
-        $sum = UserAnswer::where('attempt_id',$attemptId)->sum('score');
+        $sum = UserAnswer::where('attempt_id', $attemptId)->sum('score');
         $attempt->score = $sum;
         $attempt->save();
 
         return back()->with('message','Punktacja zaktualizowana.');
     }
-
-    
 }

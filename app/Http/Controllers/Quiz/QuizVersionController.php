@@ -10,9 +10,11 @@ use App\Models\UserAnswer;
 use App\Models\VersionedAnswer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use App\Http\Controllers\Traits\LoadsQuizTrait;
 
 class QuizVersionController extends Controller
 {
+    use LoadsQuizTrait;
     public function showVersion($quizId, $versionId)
     {
         $quiz = Quiz::findOrFail($quizId);
@@ -145,32 +147,26 @@ class QuizVersionController extends Controller
 
     public function activateVersion(Request $request, $quizId, $versionId)
     {
-        $user = Auth::user();
-        $quiz = Quiz::where('id', $quizId)->where('user_id', $user->id)->firstOrFail();
+        $quiz = $this->loadUserQuiz($quizId);
 
         $versionToActivate = QuizVersion::where('id', $versionId)
             ->where('quiz_id', $quiz->id)
             ->where('is_draft', false)
             ->firstOrFail();
 
-        // Czy inna wersja jest aktywna?
-        $alreadyActive = QuizVersion::where('quiz_id', $quiz->id)
+        if (QuizVersion::where('quiz_id', $quiz->id)
             ->where('is_draft', false)
             ->where('is_active', true)
             ->where('id', '<>', $versionId)
-            ->exists();
-
-        if ($alreadyActive) {
+            ->exists()) {
             return back()->withErrors([
                 'error' => 'Występuje już inna aktywna wersja. Dezaktywuj ją najpierw.'
             ]);
         }
 
-        // Aktywujemy wybraną
         $versionToActivate->is_active = true;
         $versionToActivate->save();
 
-        // Ustawiamy quiz->is_active
         $quiz->is_active = true;
         $quiz->save();
 
@@ -179,8 +175,7 @@ class QuizVersionController extends Controller
 
     public function deactivateVersion(Request $request, $quizId, $versionId)
     {
-        $user = Auth::user();
-        $quiz = Quiz::where('id', $quizId)->where('user_id', $user->id)->firstOrFail();
+        $quiz = $this->loadUserQuiz($quizId);
 
         $versionToDeactivate = QuizVersion::where('id', $versionId)
             ->where('quiz_id', $quiz->id)
@@ -191,13 +186,7 @@ class QuizVersionController extends Controller
         $versionToDeactivate->is_active = false;
         $versionToDeactivate->save();
 
-        // Sprawdzamy czy inne wersje są aktywne
-        $anyActive = $quiz->quizVersions()
-            ->where('is_draft', false)
-            ->where('is_active', true)
-            ->exists();
-
-        if (!$anyActive) {
+        if (!$quiz->quizVersions()->where('is_draft', false)->where('is_active', true)->exists()) {
             $quiz->is_active = false;
             $quiz->save();
         }
@@ -207,8 +196,7 @@ class QuizVersionController extends Controller
 
     public function deleteVersion($quizId, $versionId)
     {
-        $user = Auth::user();
-        $quiz = Quiz::where('id', $quizId)->where('user_id', $user->id)->firstOrFail();
+        $quiz = $this->loadUserQuiz($quizId);
 
         $version = QuizVersion::where('id', $versionId)
             ->where('quiz_id', $quiz->id)
@@ -221,7 +209,6 @@ class QuizVersionController extends Controller
             ]);
         }
 
-        // Usuwamy pytania i odpowiedzi
         foreach ($version->versionedQuestions as $q) {
             $q->versionedAnswers()->delete();
             $q->delete();
@@ -237,7 +224,7 @@ class QuizVersionController extends Controller
             'version_name' => 'required|string|max:255',
         ]);
 
-        $quiz = Quiz::where('id', $quizId)->where('user_id', Auth::id())->firstOrFail();
+        $quiz = $this->loadUserQuiz($quizId);
 
         $version = QuizVersion::where('id', $versionId)
             ->where('quiz_id', $quiz->id)
